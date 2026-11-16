@@ -5,7 +5,7 @@
 import { closeSync, existsSync, mkdirSync, openSync, readdirSync, rmSync, statSync, unlinkSync } from "node:fs";
 import path from "node:path";
 import type { AgentNotifyConfig, NotifyEvent } from "../config/schema.js";
-import { atomicWriteJson, readJson } from "../util/atomic.js";
+import { atomicWriteText, readJson } from "../util/atomic.js";
 import { appendLog } from "../util/log.js";
 import { spawnSelf } from "../util/spawn.js";
 import { sendNow } from "./index.js";
@@ -39,7 +39,7 @@ function lockPath(stateDir: string, session: string): string {
 /** 写入（或覆盖）待发记录，并确保有一个唤醒进程在等它。 */
 export function enqueue(rec: PendingNotification, cfg: AgentNotifyConfig): void {
   mkdirSync(pendingDir(cfg.stateDir), { recursive: true, mode: 0o700 });
-  atomicWriteJson(recordPath(cfg.stateDir, rec.session), rec);
+  atomicWriteText(recordPath(cfg.stateDir, rec.session), JSON.stringify(rec));
   spawnSelf(["__wake", keyOf(rec.session)]);
 }
 

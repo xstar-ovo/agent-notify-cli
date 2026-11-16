@@ -11,10 +11,6 @@ export function atomicWriteText(file: string, text: string): void {
   renameSync(tmp, file);
 }
 
-export function atomicWriteJson(file: string, value: unknown): void {
-  atomicWriteText(file, JSON.stringify(value));
-}
-
 export function readJson<T>(file: string): T | undefined {
   try {
     return JSON.parse(readFileSync(file, "utf8")) as T;
