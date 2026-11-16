@@ -1,10 +1,18 @@
 /**
- * 文件功能：Pi 扩展生成内容的测试（必须是 node + 绝对路径，不经 shell）。
+ * 文件功能：Pi 扩展生成内容的测试（运行方式、事件接线、失败与摘要、手动取消）。
  */
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { piExtensionContent } from "../../src/setup/pi.js";
+
+/** 取出某个事件的处理器源码（到下一个 pi.on 为止），用来断言它真的干了活。 */
+function handlerOf(src: string, event: string): string {
+  const start = src.indexOf(`pi.on("${event}"`);
+  assert.ok(start >= 0, `未注册 ${event}`);
+  const next = src.indexOf("pi.on(", start + 1);
+  return src.slice(start, next < 0 ? src.length : next);
+}
 
 test("pi extension calls node + absolute cli.js, never the shell/cmd shim", () => {
   const src = piExtensionContent();
@@ -15,28 +23,70 @@ test("pi extension calls node + absolute cli.js, never the shell/cmd shim", () =
   assert.ok(!src.includes("__CLI__"), "placeholder replaced");
 });
 
-test("pi extension wires cancel, task title and icon", () => {
+test("pi extension wires cancel, icon and event-based titles", () => {
   const src = piExtensionContent();
   assert.match(src, /pi\.on\("agent_start"/);
   assert.match(src, /pi\.on\("agent_settled"/);
-  assert.match(src, /before_agent_start/);
-  assert.match(src, /getSessionName/);
+  assert.match(handlerOf(src, "agent_settled"), /--icon", ICON/);
+  assert.ok(!handlerOf(src, "agent_settled").includes('push("--title"'), "标题由事件决定，不用任务名覆盖");
 });
 
 test("pi extension cancels on user activity and notifies on waiting-for-user", () => {
   const src = piExtensionContent();
   // 任务重新开始 / 用户敲字 / 退出、切会话、重载 都撤销待发的完成通知
   for (const event of ["agent_start", "input", "session_shutdown"]) {
-    assert.match(src, new RegExp(`pi\\.on\\(\"${event}\"[^;]*cancelAll\\(\\)`));
+    assert.match(handlerOf(src, event), /cancelAll\(\)/, `${event} 应撤销待发通知`);
   }
   // 完成通知和 :wait 通知是两个 key，取消时都要删
   const body = src.slice(src.indexOf("function cancelAll"), src.indexOf("export default"));
   assert.ok(body.includes('"--cancel", "--session", KEY'), "cancelAll 取消完成通知");
   assert.ok(body.includes('"--cancel", "--session", `${KEY}:wait`'), "cancelAll 取消 :wait 通知");
   // 等用户操作时立即推送，且用独立的 :wait key，避免 --cancel 误删完成通知
-  assert.match(src, /pi\.on\("ui_prompt_start"[^;]*--event", "notification"/);
-  assert.match(src, /\$\{KEY\}:wait/);
-  assert.match(src, /pi\.on\("ui_prompt_end"[^;]*--cancel", "--session", \`\$\{KEY\}:wait\`/);
+  const wait = handlerOf(src, "ui_prompt_start");
+  assert.ok(wait.includes('"--event", "notification"'), "等操作时立即推 notification");
+  assert.ok(wait.includes("`${KEY}:wait`"), "等操作通知用独立的 :wait key");
+  assert.match(handlerOf(src, "ui_prompt_end"), /"--cancel", "--session", `\$\{KEY\}:wait`/);
+});
+
+test("pi extension throttles repeated waiting-for-user prompts", () => {
+  const wait = handlerOf(piExtensionContent(), "ui_prompt_start");
+  assert.match(wait, /lastWaitAt/, "同一分钟内连弹多个确认框只提醒一次");
+});
+
+test("pi extension reports failures instead of reporting a finished task", () => {
+  const src = piExtensionContent();
+  // 只有 agent_before_settle 带 outcome（completed / aborted / error）
+  assert.match(handlerOf(src, "agent_before_settle"), /outcome\s*=\s*event\?\.outcome/);
+  assert.match(handlerOf(src, "agent_settled"), /outcome === "error"/);
+  // 新 run 重置，否则上一轮的 error 会漏到这一轮
+  assert.match(handlerOf(src, "agent_start"), /outcome = "completed"/);
+});
+
+test("pi extension stays quiet when the user aborted the run themselves", () => {
+  assert.match(handlerOf(piExtensionContent(), "agent_settled"), /event\?\.aborted\) return/);
+});
+
+test("pi extension adds duration and a reply summary to the body", () => {
+  const src = piExtensionContent();
+  assert.match(handlerOf(src, "agent_end"), /role === "assistant"/);
+  assert.match(handlerOf(src, "agent_end"), /summary = text/);
+  const settled = handlerOf(src, "agent_settled");
+  assert.ok(settled.includes("用时"), "正文带耗时");
+  assert.ok(settled.includes('args.push("--message", message)'), "耗时和摘要合成一条 --message");
+});
+
+test("pi extension survives a moved or unbuilt cli path", () => {
+  const src = piExtensionContent();
+  assert.match(src, /if \(!existsSync\(CLI\)\) return report\(/, "路径不存在要说出来");
+  assert.match(src, /child\.on\("error", \(err: any\) => report\(/, "spawn 失败要留痕");
+  assert.match(src, /appendFileSync\(LOG/, "错误写进 extension-error.log");
+  assert.match(src, /if \(reported\) return/, "只提示一次，避免刷屏");
+});
+
+test("pi extension keys notifications by session id, not by pid", () => {
+  const src = piExtensionContent();
+  assert.match(src, /getSessionId/, "用会话 id 做 key，崩溃残留才能被下个会话撤销");
+  assert.match(src, /if \(id && KEY === `pi:\$\{process\.pid\}`\) KEY = `pi:\$\{id\}`/, "拿到 id 后替换 pid 兜底");
 });
 
 test("pi extension lets the user cancel pending notifications by hand", () => {
