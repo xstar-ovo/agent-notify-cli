@@ -4,14 +4,14 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { normalize, clamp, DEFAULT_DELAY_MS } from "../../src/config/schema.js";
+import { normalize, clamp, DEFAULT_DELAY_MS, MAX_DELAY_MS, MAX_DELAY_CEILING_MS } from "../../src/config/schema.js";
 import { resolveEnv } from "../../src/config/loader.js";
 
 test("defaults fill in documented delays and max", () => {
   const c = normalize({});
   assert.equal(c.delayMs.stop, DEFAULT_DELAY_MS.stop);
   assert.equal(c.delayMs.notification, 0);
-  assert.equal(c.delayMs.max, 300_000);
+  assert.equal(c.delayMs.max, MAX_DELAY_MS);
   assert.equal(c.timeoutMs, 3000);
   assert.equal(c.bark.enabled, true);
 });
@@ -24,7 +24,7 @@ test("per-event delay is clamped to [0, max]", () => {
 });
 
 test("delay max itself is capped", () => {
-  assert.equal(normalize({ delayMs: { max: 9_999_999 } }).delayMs.max, 600_000);
+  assert.equal(normalize({ delayMs: { max: 9_999_999 } }).delayMs.max, MAX_DELAY_CEILING_MS);
   assert.equal(clamp(-1, 0, 10), 0);
 });
 

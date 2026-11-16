@@ -8,7 +8,7 @@ import { pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
 import { ensureConfigFile, loadConfig, saveDeviceKey } from "./config/loader.js";
 import { configPath } from "./config/paths.js";
-import { clamp, EVENTS, type AgentNotifyConfig, type NotifyEvent } from "./config/schema.js";
+import { clamp, DEFAULT_DELAY_MS, EVENTS, type AgentNotifyConfig, type NotifyEvent } from "./config/schema.js";
 import { sendNow } from "./notify/index.js";
 import { cancel, enqueue, sendDue, sweepDue, wake, type PendingNotification } from "./notify/scheduler.js";
 import { detectPi, piExtensionContent, PI_EXTENSION_PATH, removePiExtension, writePiExtension } from "./setup/pi.js";
@@ -211,7 +211,7 @@ async function setupCommand(dryRun: boolean, uninstall: boolean, yes: boolean): 
   console.log(`\n将执行以下修改：`);
   console.log(`  • Pi: 写入 ${PI_EXTENSION_PATH}`);
   console.log(`  • 配置: ${configPath}${dryRun ? "（dry-run，不写入）" : ensureConfigFile() ? "（已创建默认配置）" : "（已存在，不修改）"}`);
-  console.log("\n通知默认延迟：stop/settled 3 分钟，error/notification 立即（可在配置 delayMs 调整）");
+  console.log(`\n通知默认延迟：stop/settled ${DEFAULT_DELAY_MS.stop / 60_000} 分钟，error/notification 立即（可在配置 delayMs 调整）`);
 
   if (dryRun) {
     console.log(`\n--- ${PI_EXTENSION_PATH} ---\n${piExtensionContent()}`);

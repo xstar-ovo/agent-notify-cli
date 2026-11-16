@@ -26,11 +26,43 @@ export interface AgentNotifyConfig {
   stateDir: string;
 }
 
+/**
+ * 延迟常量：都写成 分钟 * 60 * 1000，改前面的分钟数就行。
+ *
+ * 为什么不是一个值：四个事件的心智不一样。
+ * - 完成类（stop/settled）要缓一下：人大概率还在屏幕前，或者马上接着追问，
+ *   立刻推就是噪音；缓 3 分钟还没动静，才是真的离开了。
+ * - 出错和等你操作要立即：这两种是「不推就会浪费你的时间」——报错了你可能在白等，
+ *   等你确认时任务已经卡死，缓 3 分钟毫无意义。
+ */
+
+/** Claude Code Stop hook 触发（一轮回答结束，可能还有后续）。 */
+export const STOP_DELAY_MS = 3 * 60 * 1000;
+
+/** Pi agent_settled 触发（任务真的结束，不会自动继续）。 */
+export const SETTLED_DELAY_MS = 5 * 60 * 1000;
+
+/** 任务出错，立即推。 */
+export const ERROR_DELAY_MS = 0;
+
+/** 需要你操作（等确认 / 等输入），立即推。 */
+export const NOTIFICATION_DELAY_MS = 0;
+
+/**
+ * 延迟的上限，分两层：
+ * - MAX_DELAY_MS 是默认值，用户可以改（--delay 或 config 的 delayMs.max），
+ *   用来套住单条延迟，避免把通知拖到信息过期。
+ * - MAX_DELAY_CEILING_MS 是代码里的硬上限，配置再怎么写也不会超过它，
+ *   避免写错一个 0（比如 5 小时）就把 waker 子进程挂一整天。
+ */
+export const MAX_DELAY_MS = 5 * 60 * 1000;
+export const MAX_DELAY_CEILING_MS = 15 * 60 * 1000;
+
 export const DEFAULT_DELAY_MS: Record<NotifyEvent, number> = {
-  stop: 180_000,
-  settled: 180_000,
-  error: 0,
-  notification: 0,
+  stop: STOP_DELAY_MS,
+  settled: SETTLED_DELAY_MS,
+  error: ERROR_DELAY_MS,
+  notification: NOTIFICATION_DELAY_MS,
 };
 
 export function clamp(n: number, min: number, max: number): number {
@@ -48,7 +80,7 @@ function str(v: unknown, def: string): string {
 export function normalize(raw: unknown, warnings: string[] = []): AgentNotifyConfig {
   const r = (raw && typeof raw === "object" ? raw : {}) as Record<string, any>;
   const barkRaw = (r.bark && typeof r.bark === "object" ? r.bark : {}) as Record<string, any>;
-  const max = clamp(num(r.delayMs?.max, 300_000), 0, 600_000);
+  const max = clamp(num(r.delayMs?.max, MAX_DELAY_MS), 0, MAX_DELAY_CEILING_MS);
 
   const delayMs = {} as Record<NotifyEvent | "max", number>;
   for (const e of EVENTS) delayMs[e] = clamp(num(r.delayMs?.[e], DEFAULT_DELAY_MS[e]), 0, max);
@@ -93,6 +125,12 @@ export const DEFAULT_CONFIG_JSON = {
     settled: { bark: true },
   },
   timeoutMs: 3000,
-  delayMs: { stop: 180000, settled: 180000, error: 0, notification: 0, max: 300000 },
+  delayMs: {
+    stop: STOP_DELAY_MS,
+    settled: SETTLED_DELAY_MS,
+    error: ERROR_DELAY_MS,
+    notification: NOTIFICATION_DELAY_MS,
+    max: MAX_DELAY_MS,
+  },
   aggregateWindowMs: 5000,
 };
