@@ -10,12 +10,12 @@ import { build, type NotifyRecord } from "./templates.js";
 
 /** 通过该事件启用的所有渠道发送；失败写日志，只有全失败才抛出。 */
 export async function sendNow(rec: NotifyRecord, cfg: AgentNotifyConfig): Promise<void> {
-  const { title, body } = build(rec);
+  const msg = build(rec);
   const tasks: Promise<void>[] = [];
 
   if (cfg.bark.enabled && cfg.events[rec.event]?.bark) {
     tasks.push(
-      sendBark(title, body, cfg, rec.icon).catch((err: unknown) => {
+      sendBark(msg, cfg, rec.icon).catch((err: unknown) => {
         appendLog(`level=error event=${rec.event} channel=bark err="${redact(String(err))}"`);
         throw err;
       }),

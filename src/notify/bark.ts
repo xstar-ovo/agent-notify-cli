@@ -3,10 +3,10 @@
  */
 
 import type { AgentNotifyConfig } from "../config/schema.js";
+import type { NotifyMessage } from "./templates.js";
 
 export async function sendBark(
-  title: string,
-  body: string,
+  msg: NotifyMessage,
   cfg: AgentNotifyConfig,
   icon?: string,
 ): Promise<void> {
@@ -19,8 +19,9 @@ export async function sendBark(
 
   const image = icon ?? cfg.bark.icon;
   const payload = {
-    title,
-    body,
+    title: msg.title,
+    ...(msg.subtitle ? { subtitle: msg.subtitle } : {}),
+    body: msg.body,
     group: cfg.bark.group,
     level: cfg.bark.level,
     ...(image ? { icon: image } : {}),

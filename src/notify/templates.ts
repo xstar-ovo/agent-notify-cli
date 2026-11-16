@@ -1,5 +1,5 @@
 /**
- * 文件功能：通知的标题与正文拼装规则（含任务名覆盖与长度截断）。
+ * 文件功能：通知的标题、副标题与正文拼装规则（含覆盖与长度截断）。
  */
 
 import path from "node:path";
@@ -11,10 +11,16 @@ export interface NotifyRecord {
   cwd?: string;
   session?: string;
   message?: string;
-  /** 覆盖该事件的默认标题（例如当前任务名）。 */
+  /** 覆盖该事件的默认标题。 */
   title?: string;
   /** 覆盖本条通知的 config.bark.icon。 */
   icon?: string;
+}
+
+export interface NotifyMessage {
+  title: string;
+  subtitle: string;
+  body: string;
 }
 
 const TITLES: Record<NotifyEvent, string> = {
@@ -24,19 +30,20 @@ const TITLES: Record<NotifyEvent, string> = {
   error: "任务出错",
 };
 
-const MAX_BODY = 200;
 const MAX_TITLE = 60;
+const MAX_SUBTITLE = 60;
+const MAX_BODY = 200;
 
-export function build(rec: NotifyRecord): { title: string; body: string } {
+function clamp(text: string, max: number): string {
+  return text.length <= max ? text : `${text.slice(0, max - 1)}…`;
+}
+
+export function build(rec: NotifyRecord): NotifyMessage {
   const project = rec.cwd ? path.basename(rec.cwd) : undefined;
-  const who = [rec.agent ?? "agent", project].filter(Boolean).join(" · ");
-  const sid = rec.session ? ` #${rec.session.slice(0, 10)}` : "";
-  const body = [who + sid, rec.message].filter(Boolean).join("\n");
   const custom = rec.title?.replace(/\s+/g, " ").trim();
-  const title = custom
-    ? custom.length > MAX_TITLE
-      ? `${custom.slice(0, MAX_TITLE - 1)}…`
-      : custom
-    : TITLES[rec.event];
-  return { title, body: body.length > MAX_BODY ? `${body.slice(0, MAX_BODY - 1)}…` : body };
+  return {
+    title: custom ? clamp(custom, MAX_TITLE) : TITLES[rec.event],
+    subtitle: clamp([rec.agent ?? "agent", project].filter(Boolean).join(" · "), MAX_SUBTITLE),
+    body: clamp(rec.message ?? "", MAX_BODY),
+  };
 }

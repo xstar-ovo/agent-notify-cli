@@ -1,5 +1,5 @@
 /**
- * 文件功能：标题/正文拼装、自定义任务名与截断的测试。
+ * 文件功能：标题/副标题/正文拼装、自定义标题与截断的测试。
  */
 
 import { test } from "node:test";
@@ -13,7 +13,7 @@ test("title per event", () => {
   assert.equal(build({ event: "settled" }).title, build({ event: "stop" }).title);
 });
 
-test("custom title (task name) replaces the default, collapsed and capped at 60", () => {
+test("custom title replaces the default, collapsed and capped at 60", () => {
   assert.equal(build({ event: "settled", title: "  fix\n\nblank title  " }).title, "fix blank title");
   const long = build({ event: "settled", title: "x".repeat(100) }).title;
   assert.equal(long.length, 60);
@@ -21,19 +21,15 @@ test("custom title (task name) replaces the default, collapsed and capped at 60"
   assert.equal(build({ event: "settled", title: "   " }).title, build({ event: "settled" }).title);
 });
 
-test("body carries agent, project, short session and message", () => {
-  const { body } = build({
-    event: "stop",
-    agent: "pi",
-    cwd: "/home/u/proj",
-    session: "pi:1234567890abcdef",
-    message: "done",
-  });
-  assert.equal(body, "pi · proj #pi:1234567\ndone");
+test("subtitle carries agent and project directory", () => {
+  assert.equal(build({ event: "settled", agent: "pi", cwd: "/home/u/my-project" }).subtitle, "pi · my-project");
+  assert.equal(build({ event: "settled" }).subtitle, "agent");
 });
 
-test("body is truncated to 200 chars", () => {
-  const { body } = build({ event: "error", message: "x".repeat(500) });
-  assert.equal(body.length, 200);
-  assert.ok(body.endsWith("…"));
+test("body is just the message, truncated to 200", () => {
+  assert.equal(build({ event: "settled", message: "改了 3 个文件" }).body, "改了 3 个文件");
+  assert.equal(build({ event: "settled" }).body, "");
+  const long = build({ event: "error", message: "x".repeat(500) }).body;
+  assert.equal(long.length, 200);
+  assert.ok(long.endsWith("…"));
 });
