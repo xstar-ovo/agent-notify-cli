@@ -35,14 +35,20 @@ function notify(args: string[]) {
   child.unref();
 }
 
+function cancelAll() {
+  // 完成通知和“等你操作”通知是两个 key，一起撤销
+  notify(["--cancel", "--session", KEY]);
+  notify(["--cancel", "--session", \`\${KEY}:wait\`]);
+}
+
 export default function (pi: any) {
   pi.on("before_agent_start", (event: any) => {
     if (event?.messageType === "user" && typeof event.prompt === "string") task = event.prompt.trim();
   });
-  pi.on("agent_start", () => notify(["--cancel", "--session", KEY]));
-  // 用户回到终端敲字，或退出/切会话/重载：撤销还没发出的完成通知（否则人已经看过还得再收一次）
-  pi.on("input", () => notify(["--cancel", "--session", KEY]));
-  pi.on("session_shutdown", () => notify(["--cancel", "--session", KEY]));
+  // 用户回到终端敲字、任务重新开始、退出/切会话/重载：撤销还没发出的通知（否则人已经看过还得再收一次）
+  pi.on("agent_start", () => cancelAll());
+  pi.on("input", () => cancelAll());
+  pi.on("session_shutdown", () => cancelAll());
   // 等用户操作（对话框/确认）时立即推送；用独立 key，免得取消时把完成通知一起删了
   pi.on("ui_prompt_start", () =>
     notify(["--event", "notification", "--session", \`\${KEY}:wait\`, "--title", WAIT_TITLE, "--icon", ICON]),
@@ -53,6 +59,21 @@ export default function (pi: any) {
     const args = ["--event", event?.aborted ? "notification" : "settled", "--session", KEY, "--icon", ICON];
     if (name) args.push("--title", name);
     notify(args);
+  });
+  // 看完结果、不想继续：按 ctrl+shift+k 或输 /seen 撤掉还没发出的通知
+  pi.registerShortcut("ctrl+shift+k", {
+    description: "我看过了，取消待发通知",
+    handler: async (ctx: any) => {
+      cancelAll();
+      ctx?.ui?.notify?.("已取消待发通知", "info");
+    },
+  });
+  pi.registerCommand("seen", {
+    description: "取消待发通知（我看过了，不用再推）",
+    handler: async (_args: string, ctx: any) => {
+      cancelAll();
+      ctx?.ui?.notify?.("已取消待发通知", "info");
+    },
   });
 }
 `;

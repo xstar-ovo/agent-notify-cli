@@ -58,6 +58,8 @@ agent-notify setup --uninstall
 - `before_agent_start` 记下当前任务文本；`agent_settled` 按配置延迟发送（被中断记为「等待处理」）。
 - `agent_start`、`input`、`session_shutdown`、`ui_prompt_end` 取消该会话的待发通知，避免人已经回来了还响。
 
+看完了结果但不想继续，按 `ctrl+shift+k` 或输 `/seen`，手机上还没发出去的那条通知就不会再推。
+
 通知内容：**标题 = 当前任务名**（`/name` 的会话名优先，否则取本次用户输入第一行，超 60 字截断），**图标 = Pi logo**，正文为 `pi · 项目目录 #会话前10字符` + 可选 `--message`。都可覆盖：
 
 ```bash
