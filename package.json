@@ -1,7 +1,26 @@
 {
-  "name": "agent-notify",
+  "name": "agent-notify-cli",
   "version": "0.1.0",
-  "description": "Unified Bark notifications for AI coding agents",
+  "description": "Unified phone notifications for AI coding agents (Bark, Pi): task done, needs input, errors, with delayed delivery",
+  "keywords": [
+    "bark",
+    "notification",
+    "cli",
+    "ai-agent",
+    "pi",
+    "claude-code",
+    "opencode",
+    "hook"
+  ],
+  "author": "joy_star <3452508788@qq.com>",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/xstar-ovo/agent-notify-cli.git"
+  },
+  "homepage": "https://github.com/xstar-ovo/agent-notify-cli#readme",
+  "bugs": {
+    "url": "https://github.com/xstar-ovo/agent-notify-cli/issues"
+  },
   "type": "module",
   "bin": {
     "agent-notify": "bin/agent-notify.js"

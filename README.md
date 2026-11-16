@@ -6,11 +6,16 @@
 
 ## 安装
 
-本包尚未发布到 npm，从源码装：
+```bash
+npm i -g agent-notify-cli   # 命令名仍是 agent-notify
+```
+
+或者从源码装（开发用）：
 
 ```bash
-git clone <本仓库地址> agent-notify && cd agent-notify
-npm install        # 会顺带 npx tsc 编译（prepare 脚本）
+git clone https://github.com/xstar-ovo/agent-notify-cli.git
+cd agent-notify-cli
+npm install        # 会顺带 tsc 编译（prepare 脚本）
 npm link           # 之后任意目录可用 agent-notify
 ```
 
