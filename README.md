@@ -55,15 +55,29 @@ agent-notify setup --uninstall
 
 写完在 Pi 里 `/reload` 生效。扩展行为：
 
-- `before_agent_start` 记下当前任务文本；`agent_settled` 按配置延迟发送（被中断记为「等待处理」）。
+- `agent_start` 记开始时间，`agent_settled` 按配置延迟发送。
+- 出错记为「任务出错」（读 `agent_before_settle` 的 `outcome`），不会误报「任务完成」；自己按 Esc 打断则不推。
+- 正文带耗时和最后一条回复前 60 字的摘要，手机上能看出该不该回去看。
 - `agent_start`、`input`、`session_shutdown`、`ui_prompt_end` 取消该会话的待发通知，避免人已经回来了还响。
+- 连弹多个确认框 1 分钟内只提醒一次。
+- 找不到 `dist/cli.js`（仓库挪了位置或没 build）时，TUI 会红字提示并写入 `~/.config/agent-notify/extension-error.log`，不再静默失效。
 
 看完了结果但不想继续，按 `ctrl+shift+k` 或输 `/seen`，手机上还没发出去的那条通知就不会再推。
 
-通知内容：**标题 = 当前任务名**（`/name` 的会话名优先，否则取本次用户输入第一行，超 60 字截断），**图标 = Pi logo**，正文为 `pi · 项目目录 #会话前10字符` + 可选 `--message`。都可覆盖：
+通知内容：**标题 = 事件**（任务完成 / 任务出错 / 等待处理），**副标题 = `pi · 项目目录`**，**正文 = 耗时 + 摘要**，**图标 = Pi logo**。都可覆盖：
 
 ```bash
-agent-notify --event settled --title "重构 auth 模块" --icon https://example.com/x.png
+agent-notify --event settled --title "重构 auth 模块" --message "改了 3 个文件" --icon https://example.com/x.png
+```
+
+终端上看是这样：
+
+```
+┌─────────────────────────────
+│ 任务完成
+│ pi · my-project
+│ 用时 4分12秒 · 改完了 auth 中间件
+└─────────────────────────────
 ```
 
 ## 事件语义
@@ -72,10 +86,10 @@ agent-notify --event settled --title "重构 auth 模块" --icon https://example
 |---|---|---|---|
 | `settled` | Pi 任务真正结束（不会自动继续） | 任务完成 | 3 分钟 |
 | `stop` | Claude Code Stop hook：一轮回答结束 | 任务完成 | 3 分钟 |
-| `notification` | 需要你操作（等确认 / 等输入），或任务被中断 | 等待处理 | 立即 |
+| `notification` | 需要你操作（等确认 / 等输入） | 等待处理 | 立即 |
 | `error` | 任务出错 | 任务出错 | 立即 |
 
-`--title` 可覆盖标题（Pi 已自动填成任务名）。哪个渠道收哪个事件由 `events.<事件>.bark` 控制。
+`--title` / `--message` 可覆盖标题和正文。哪个渠道收哪个事件由 `events.<事件>.bark` 控制。
 
 ## 延迟通知
 
