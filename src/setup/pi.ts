@@ -17,7 +17,7 @@ const CLI_PATH = fileURLToPath(new URL("../cli.js", import.meta.url));
 
 const PI_TEMPLATE = `// ${MARKER}，请勿手改；重新运行 \`agent-notify setup\` 覆盖。
 import { spawn } from "node:child_process";
-import { appendFileSync, existsSync } from "node:fs";
+import { appendFileSync, existsSync, readFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
@@ -25,6 +25,7 @@ const CLI = ${JSON.stringify(CLI_PATH)};
 const WAIT_TITLE = "需要你操作";
 const ICON = "https://raw.githubusercontent.com/earendil-works/pi/main/apps/p2/public/icons/icon-192.png";
 const LOG = path.join(os.homedir(), ".config", "agent-notify", "extension-error.log");
+const CFG = path.join(os.homedir(), ".config", "agent-notify", "config.json");
 // 会话标识先用 pid 兜底，拿到 Pi 的会话 id 后换掉：崩溃残留的待发记录，恢复会话时也能撤销
 let KEY = \`pi:\${process.pid}\`;
 let ui: any = null;
@@ -33,6 +34,7 @@ let startedAt = 0;
 let outcome = "completed";
 let summary = "";
 let lastWaitAt = 0;
+let ticker: ReturnType<typeof setInterval> | undefined;
 
 function report(msg: string) {
   try {
@@ -56,9 +58,43 @@ function notify(args: string[]) {
 }
 
 function cancelAll() {
+  clearCountdown();
   // 完成通知和“等你操作”通知是两个 key，一起撤销
   notify(["--cancel", "--session", KEY]);
   notify(["--cancel", "--session", \`\${KEY}:wait\`]);
+}
+
+function fmt(ms: number): string {
+  const sec = Math.max(0, Math.round(ms / 1000));
+  return sec < 60 ? \`\${sec}秒\` : \`\${Math.floor(sec / 60)}分\${sec % 60}秒\`;
+}
+
+// 延迟值就在配置文件里（扩展不传 --delay），读不到按 3 分钟
+function delayFor(event: string): number {
+  try {
+    const ms = JSON.parse(readFileSync(CFG, "utf8"))?.delayMs?.[event];
+    return typeof ms === "number" ? ms : 180000;
+  } catch {
+    return 180000;
+  }
+}
+
+function clearCountdown() {
+  if (ticker) clearInterval(ticker);
+  ticker = undefined;
+  ui?.setStatus?.("agent-notify", undefined);
+}
+
+// 底部状态栏显示还要等多久，看完了按 ctrl+shift+k 撤掉
+function countdown(dueAt: number) {
+  clearCountdown();
+  const tick = () => {
+    const left = dueAt - Date.now();
+    if (left < 1000) return clearCountdown(); // 不足 1 秒就当已发出，别停在「0 秒」
+    ui?.setStatus?.("agent-notify", \`通知 \${fmt(left)} 后推送 · ctrl+shift+k 取消\`);
+  };
+  ticker = setInterval(tick, 1000);
+  tick();
 }
 
 // TUI 提示要用事件里的 ctx.ui（pi.ui 没有这个 API），顺手把会话 id 绑上
@@ -88,6 +124,7 @@ export default function (pi: any) {
   // 等用户操作（对话框/确认）时立即推送；用独立 key，免得取消时把完成通知一起删了
   pi.on("ui_prompt_start", (_event: any, ctx: any) => {
     adopt(ctx);
+    clearCountdown(); // 这一条立即发，没有倒计时
     if (Date.now() - lastWaitAt < 60_000) return; // 连弹几个确认框只提醒一次
     lastWaitAt = Date.now();
     notify(["--event", "notification", "--session", \`\${KEY}:wait\`, "--title", WAIT_TITLE, "--icon", ICON]);
@@ -112,13 +149,14 @@ export default function (pi: any) {
     adopt(ctx);
     if (event?.aborted) return; // 自己按 Esc 打断，人就在终端前，不必再推
     const failed = outcome === "error";
-    const sec = Math.round((Date.now() - startedAt) / 1000);
-    const span = startedAt ? (sec < 60 ? \`\${sec}秒\` : \`\${Math.floor(sec / 60)}分\${sec % 60}秒\`) : "";
+    const span = startedAt ? fmt(Date.now() - startedAt) : "";
     const message = [span && \`用时 \${span}\`, summary].filter(Boolean).join(" · ");
     // 标题由事件决定（任务完成 / 任务出错），不用任务名覆盖
     const args = ["--event", failed ? "error" : "settled", "--session", KEY, "--icon", ICON];
     if (message) args.push("--message", message);
     notify(args);
+    const delay = delayFor(failed ? "error" : "settled");
+    if (delay > 0) countdown(Date.now() + delay);
   });
   // 看完结果、不想继续：按 ctrl+shift+k 或输 /seen 撤掉还没发出的通知
   pi.registerShortcut("ctrl+shift+k", {

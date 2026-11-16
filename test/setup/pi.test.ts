@@ -89,6 +89,19 @@ test("pi extension keys notifications by session id, not by pid", () => {
   assert.match(src, /if \(id && KEY === `pi:\$\{process\.pid\}`\) KEY = `pi:\$\{id\}`/, "拿到 id 后替换 pid 兜底");
 });
 
+test("pi extension shows a countdown for the pending notification", () => {
+  const src = piExtensionContent();
+  const settled = handlerOf(src, "agent_settled");
+  assert.ok(settled.includes("countdown(Date.now() + delay)"), "入队后开始倒计时");
+  assert.match(settled, /if \(delay > 0\)/, "延迟为 0 时不倒计时");
+  assert.match(src, /ui\?\.setStatus\?\.\("agent-notify", `通知/, "底部状态栏显示剩余时间");
+  assert.match(src, /if \(ticker\) clearInterval\(ticker\)/, "倒计时可停止");
+  // 取消的每条路都要同时抹掉状态栏，否则撤销了还在倒数
+  const body = src.slice(src.indexOf("function cancelAll"), src.indexOf("function fmt"));
+  assert.match(body, /clearCountdown\(\)/, "cancelAll 清掉倒计时");
+  assert.match(handlerOf(src, "ui_prompt_start"), /clearCountdown\(\)/, "立即推送时不再倒计时");
+});
+
 test("pi extension lets the user cancel pending notifications by hand", () => {
   const src = piExtensionContent();
   assert.match(src, /pi\.registerShortcut\("ctrl\+shift\+k"/);

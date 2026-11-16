@@ -62,6 +62,7 @@ agent-notify setup --uninstall
 - 正文带耗时和最后一条回复前 60 字的摘要，手机上能看出该不该回去看。
 - `agent_start`、`input`、`session_shutdown`、`ui_prompt_end` 取消该会话的待发通知，避免人已经回来了还响。
 - 连弹多个确认框 1 分钟内只提醒一次。
+- 等待期间底部状态栏显示「通知 2分41秒 后推送 · ctrl+shift+k 取消」，倒数到 1 秒内自动消失。
 - 找不到 `dist/cli.js`（仓库挪了位置或没 build）时，TUI 会红字提示并写入 `~/.config/agent-notify/extension-error.log`，不再静默失效。
 
 看完了结果但不想继续，按 `ctrl+shift+k` 或输 `/seen`，手机上还没发出去的那条通知就不会再推。
