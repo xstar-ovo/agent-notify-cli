@@ -16,16 +16,16 @@ import { appendLog } from "./util/log.js";
 import { redact } from "./util/redact.js";
 import { readStdinJson } from "./util/stdin.js";
 
-const HELP = `agent-notify — unified agent notifications
+const HELP = `an / agent-notify — unified agent notifications
 
 Usage:
-  agent-notify --event <stop|notification|error|settled> [--delay <sec>] [--session <id>]
-               [--message <text>] [--agent <name>] [--stdin-json]
-  agent-notify --cancel [--session <id>]
-  agent-notify flush
-  agent-notify test
-  agent-notify key <bark-key>
-  agent-notify setup [--dry-run] [--uninstall] [--yes]
+  an --event <stop|notification|error|settled> [--delay <sec>] [--session <id>]
+     [--message <text>] [--agent <name>] [--stdin-json]
+  an --cancel [--session <id>]
+  an flush
+  an test
+  an key <bark-key>
+  an setup [--dry-run] [--uninstall] [--yes]
 
 Config: ${configPath} (bark endpoint + {env:BARK_DEVICE_KEY})`;
 

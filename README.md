@@ -16,8 +16,10 @@ npm i -g agent-notify-cli   # 命令名仍是 agent-notify
 git clone https://github.com/xstar-ovo/agent-notify-cli.git
 cd agent-notify-cli
 npm install        # 会顺带 tsc 编译（prepare 脚本）
-npm link           # 之后任意目录可用 agent-notify
+npm link           # 之后任意目录可用 an 或 agent-notify
 ```
+
+两个名字等价（同一份 bin），下文统一写 `agent-notify`，敲 `an` 效果一样。
 
 要求 Node ≥ 20：只用内置 `fetch`，无运行时依赖。
 

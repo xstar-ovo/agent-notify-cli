@@ -23,6 +23,7 @@
   },
   "type": "module",
   "bin": {
+    "an": "bin/agent-notify.js",
     "agent-notify": "bin/agent-notify.js"
   },
   "files": [
