@@ -20,7 +20,7 @@
 
 ```powershell
 npm install                 # 装依赖 + 触发 prepare 构建
-npm test                    # 68 个用例应全绿
+npm test                    # 71 个用例应全绿
 npm pack --dry-run          # 看 tarball 内容，确认只有 dist/bin/README/LICENSE/package.json
 node bin/agent-notify.js --help
 ```
@@ -54,6 +54,7 @@ npx agent-notify-cli --help
 1. **npm token**：npmjs.com → Access Tokens → Generate New Token → Granular Access Token
    - Permissions: `Read and write`
    - Packages: 选中 `agent-notify-cli`（或 All packages）
+   - **必须勾选 `Bypass two-factor authentication`**，否则 CI 发布报 `EOTP`
    - 有效期建议 1 年，到期更换
 2. **GitHub secret**：仓库 → Settings → Secrets and variables → Actions → New secret
    - Name: `NPM_TOKEN`
@@ -62,9 +63,21 @@ npx agent-notify-cli --help
 ### 发版三步
 
 ```powershell
-npm version patch        # 或 minor / major，会改 package.json 并打 git tag
-git push origin main --follow-tags
+npm test                                             # 1. 保险：71/71 全绿
+npm version minor -m "chore(release): v%s"            # 2. 升版本（0.x 破坏性变更用 minor），自动 build + commit + 打 tag
+git push origin main --follow-tags                    # 3. 推 commit 和 tag，CI 自动发布
 ```
+
+版本号怎么选：破坏性变更（如命令面改动，旧 hooks 需要重跑 `an setup`）用 `minor`（0.x 下 `0.1.0 → 0.2.0`）；修 bug 用 `patch`；正式跨大版本用 `major`。
+
+发布后确认：
+
+```powershell
+npm view agent-notify-cli version       # 应输出新版本号
+npx agent-notify-cli@<新版本> doctor     # 或 an status
+```
+
+破坏性变更建议同时在 GitHub 发 Release，写清升级后要重跑 `an setup`。
 
 推上去之后 GitHub Actions（`.github/workflows/ci.yml`）会：
 
@@ -98,7 +111,7 @@ git push origin main --follow-tags
 | 现象 | 原因 / 处理 |
 | --- | --- |
 | `E403` 或 `EPUBLISHCONFLICT` | 包名被抢注。改用 scoped 名 `@xstar-ovo/agent-notify-cli`，同时 `npm publish --access public`，README 里的 `npm i -g` 也要改 |
-| `EOTP` | 账号开了 2FA，本地发布要带 `--otp <6位码>`；CI 用 Automation/Granular token 不需要 |
+| `EOTP` | token 没开 bypass 2FA。npmjs → Access Tokens → Generate New Token，勾上 **Bypass two-factor authentication**（Read and write + 选本包），再把新 token 写回 GitHub secret `NPM_TOKEN`。本地发布则带 `--otp <6位码>` |
 | CI publish 报 provenance 错误 | 仓库是 private（当前就是），不要加 `--provenance`；转 public 后才加回，同时 job 需要 `id-token: write` 权限 |
 | CI `npm ci` 报 lock 不同步 | 改过依赖没更新 `package-lock.json`，本地跑一次 `npm install` 再提交 |
 | 用户装完命令跑不起来 | 检查 `bin/agent-notify.js` 的 shebang 和 `dist/cli.js` 是否导出 `main`；`npm pack --dry-run` 确认 dist 打进去了 |
