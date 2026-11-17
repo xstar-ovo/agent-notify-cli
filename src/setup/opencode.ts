@@ -5,7 +5,7 @@
 import { existsSync, mkdirSync, readFileSync, realpathSync, rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import {
   DEFAULT_DELAY_MS,
   MAX_DELAY_CEILING_MS,
@@ -22,6 +22,8 @@ export const OPENCODE_PLUGIN_PATH = path.join(OPENCODE_PLUGIN_ROOT, "index.ts");
 export const OPENCODE_TUI_PATH = path.join(OPENCODE_PLUGIN_ROOT, "tui.tsx");
 const OPENCODE_TUI_LEGACY_PATH = path.join(OPENCODE_PLUGIN_ROOT, "tui.ts");
 const OPENCODE_LEGACY_PATH = path.join(OPENCODE_PLUGIN_DIR, "agent-notify.ts");
+export const OPENCODE_CLI_CONFIG_PATH = path.join(OPENCODE_CONFIG_DIR, "cli.json");
+const OPENCODE_CLI_PLUGIN = pathToFileURL(OPENCODE_PLUGIN_ROOT).href;
 
 const MARKER = "由 agent-notify setup 生成";
 const CLI_PATH = fileURLToPath(new URL("../cli.js", import.meta.url));
@@ -295,6 +297,7 @@ export default Plugin.define({
   id: "agent-notify-tui",
   setup(ctx: any) {
     const base = ctx?.location?.directory;
+    report("tui setup");
     const [state, setState] = ctx.storage.memory("agent-notify", {
       initial: { due: {} as Record<string, number>, tick: 0 },
     });
@@ -351,15 +354,17 @@ export default Plugin.define({
           title: "取消待发通知",
           description: "我看过了，取消待发通知",
           group: "Agent Notify",
+          palette: true,
           slash: { name: "ack" },
           run: () => {
-            const route = ctx.route.current;
-            const current = route?.name === "session" ? route.params?.sessionID : undefined;
+            const route = ctx.ui.router.current();
+            report(\`ack: fired route=\${route?.type}\`);
+            const current = route?.type === "session" ? route.sessionID : undefined;
             // 命令面板/路由切换时 route 可能不是 session，退回最近一条待发记录
             const fallback = Object.keys(state.due).sort((a, b) => state.due[a] - state.due[b])[0];
             const id = current ?? fallback;
             if (!id) {
-              report(\`ack: no pending session (route=\${route?.name})\`);
+              report(\`ack: no pending session (route=\${route?.type})\`);
               ctx.ui.toast({ variant: "info", message: "没有待发通知" });
               return;
             }
@@ -370,6 +375,13 @@ export default Plugin.define({
         },
       ],
     }));
+
+    try {
+      const cmds = ctx.keymap.commands();
+      report("tui commands " + cmds.map((c: any) => c.id + ":" + (c.slash?.name ?? "")).join(","));
+    } catch (err: any) {
+      report("tui commands failed " + (err?.message ?? err));
+    }
 
     const off = ctx.ui.slot({
       append: "session.composer.top",
@@ -430,6 +442,27 @@ function removeMarked(file: string): boolean {
   return true;
 }
 
+function updateOpenCodeCliConfig(add: boolean): boolean {
+  let data: any = {};
+  if (existsSync(OPENCODE_CLI_CONFIG_PATH)) {
+    try {
+      data = JSON.parse(readFileSync(OPENCODE_CLI_CONFIG_PATH, "utf8"));
+    } catch {
+      return false; // 不覆盖用户手写的 JSONC / 非法配置
+    }
+  }
+  if (!data || typeof data !== "object" || Array.isArray(data)) return false;
+  const plugins = Array.isArray(data.plugins) ? data.plugins.slice() : [];
+  const index = plugins.indexOf(OPENCODE_CLI_PLUGIN);
+  if (add && index < 0) plugins.push(OPENCODE_CLI_PLUGIN);
+  else if (!add && index >= 0) plugins.splice(index, 1);
+  else return false;
+  if (plugins.length > 0) data.plugins = plugins;
+  else delete data.plugins;
+  atomicWriteText(OPENCODE_CLI_CONFIG_PATH, `${JSON.stringify(data, null, 2)}\n`);
+  return true;
+}
+
 export function writeOpenCodePlugin(): "written" | "unchanged" {
   mkdirSync(OPENCODE_PLUGIN_ROOT, { recursive: true });
   let changed = false;
@@ -446,11 +479,13 @@ export function writeOpenCodePlugin(): "written" | "unchanged" {
     changed = true;
   }
   const removed = removeMarked(OPENCODE_LEGACY_PATH) || removeMarked(OPENCODE_TUI_LEGACY_PATH);
-  return removed || changed ? "written" : "unchanged";
+  const registered = updateOpenCodeCliConfig(true);
+  return removed || changed || registered ? "written" : "unchanged";
 }
 
 /** 仅当插件是本工具生成的时候才删除。 */
 export function removeOpenCodePlugin(): boolean {
+  const unregistered = updateOpenCodeCliConfig(false);
   let removed = removeMarked(OPENCODE_LEGACY_PATH) || removeMarked(OPENCODE_TUI_LEGACY_PATH);
   for (const file of [OPENCODE_PLUGIN_PATH, OPENCODE_TUI_PATH]) {
     if (!existsSync(file)) continue;
@@ -467,5 +502,5 @@ export function removeOpenCodePlugin(): boolean {
   } catch {
     /* 目录非空就保留 */
   }
-  return removed;
+  return removed || unregistered;
 }

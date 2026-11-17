@@ -130,13 +130,15 @@ test("opencode tui plugin shows the scheduled time at task end", () => {
   assert.match(src, /--cancel/);
   assert.match(src, /ctx\.keymap\.layer/);
   assert.match(src, /slash: \{ name: "ack" \}/);
-  assert.doesNotMatch(src, /ctrl\+shift\+k|bindings:|palette:\s*true/);
-  assert.match(src, /ctx\.route\.current/);
-  assert.match(src, /route\?\.name === "session"/);
-  assert.match(src, /route\.params\?\.sessionID/);
+  assert.match(src, /palette: true/);
+  assert.match(src, /ctx\.keymap\.commands\(\)/);
+  assert.doesNotMatch(src, /ctrl\+shift\+k|bindings:|slashName|namespace:/);
+  assert.match(src, /ctx\.ui\.router\.current\(\)/);
+  assert.match(src, /route\?\.type === "session"/);
+  assert.match(src, /route\.sessionID/);
   assert.match(src, /const fallback = Object\.keys\(state\.due\)/);
   assert.match(src, /ctx\.ui\.toast\(\{/);
-  assert.doesNotMatch(src, /ctx\.ui\.router\.current|ctx\.ui\.toast\.show/);
+  assert.doesNotMatch(src, /ctx\.route\.current|ctx\.router\.current\(|ctx\.ui\.toast\.show/);
 });
 
 test("opencode tui plugin stays quiet for subagents and other locations", () => {
