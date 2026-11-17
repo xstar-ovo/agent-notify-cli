@@ -28,7 +28,7 @@ test("pi extension wires cancel, icon and event-based titles", () => {
   assert.match(src, /pi\.on\("agent_start"/);
   assert.match(src, /pi\.on\("agent_settled"/);
   assert.match(handlerOf(src, "agent_settled"), /--icon", ICON/);
-  assert.ok(!handlerOf(src, "agent_settled").includes('push("--title"'), "标题由事件决定，不用任务名覆盖");
+  assert.ok(!src.includes("--title"), "不再支持标题覆盖");
 });
 
 test("pi extension cancels on user activity and notifies on waiting-for-user", () => {

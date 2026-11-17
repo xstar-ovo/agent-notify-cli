@@ -58,7 +58,6 @@ async function run(): Promise<number> {
     options: {
       event: { type: "string" },
       message: { type: "string" },
-      title: { type: "string" },
       icon: { type: "string" },
       delay: { type: "string" },
       session: { type: "string" },
@@ -165,7 +164,6 @@ async function eventCommand(
     agent,
     cwd: typeof stdin?.cwd === "string" ? stdin.cwd : process.cwd(),
     message: str(values.message) ?? hookMessage(stdin),
-    title: str(values.title),
     icon: str(values.icon),
     createdAt: now,
     dueAt: now + delayMs,

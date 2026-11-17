@@ -12,7 +12,6 @@ import {
   MAX_DELAY_MS,
   SUMMARY_CHARS,
   WAIT_REMINDER_MS,
-  WAIT_TITLE,
 } from "../config/constant.js";
 import { atomicWriteText } from "../util/atomic.js";
 
@@ -30,7 +29,6 @@ import os from "node:os";
 import path from "node:path";
 
 const CLI = ${JSON.stringify(CLI_PATH)};
-const WAIT_TITLE = ${JSON.stringify(WAIT_TITLE)};
 const ICON = "https://raw.githubusercontent.com/earendil-works/pi/main/apps/p2/public/icons/icon-192.png";
 const LOG = path.join(os.homedir(), ".config", "agent-notify", "extension-error.log");
 const CFG = path.join(os.homedir(), ".config", "agent-notify", "config.json");
@@ -151,10 +149,10 @@ export default function (pi: any) {
     clearCountdown(); // 这一条立即发，没有倒计时
     if (Date.now() - lastWaitAt < ${WAIT_REMINDER_MS}) return; // 连弹几个确认框只提醒一次
     lastWaitAt = Date.now();
-    notify(["--event", "notification", "--session", \`\${KEY}:wait\`, "--title", WAIT_TITLE, "--icon", ICON]);
+    notify(["--event", "notification", "--session", \`\${KEY}:wait\`, "--icon", ICON]);
   });
   pi.on("ui_prompt_end", () => notify(["--cancel", "--session", \`\${KEY}:wait\`]));
-  // 本轮最后一条回复的前 60 字，作为推送正文的摘要
+  // 本轮最后一条回复的前 50 字，作为推送正文的摘要
   pi.on("agent_end", (event: any, ctx: any) => {
     adopt(ctx);
     const last = [...(event?.messages ?? [])].reverse().find((m: any) => m?.role === "assistant");

@@ -12,7 +12,6 @@ import {
   MAX_DELAY_MS,
   SUMMARY_CHARS,
   WAIT_REMINDER_MS,
-  WAIT_TITLE,
 } from "../config/constant.js";
 import { atomicWriteText } from "../util/atomic.js";
 
@@ -46,7 +45,6 @@ import path from "node:path";
 const CLI = ${JSON.stringify(CLI_PATH)};
 // OpenCode 跑在 Bun 里，process.execPath 不是 node；这里写死 setup 时的 node 绝对路径。
 const NODE = process.env.AGENT_NOTIFY_NODE || ${JSON.stringify(NODE_PATH)};
-const WAIT_TITLE = ${JSON.stringify(WAIT_TITLE)};
 const ICON = "https://opencode.ai/favicon.ico";
 const LOG = path.join(os.homedir(), ".config", "agent-notify", "extension-error.log");
 
@@ -94,7 +92,7 @@ function waitFor(id: string, cwd: string, message?: string) {
   const last = waitAt.get(id) ?? 0;
   if (Date.now() - last < ${WAIT_REMINDER_MS}) return; // 连弹几个确认框只提醒一次
   waitAt.set(id, Date.now());
-  const args = ["--event", "notification", "--session", \`\${key(id)}:wait\`, "--title", WAIT_TITLE, "--icon", ICON];
+  const args = ["--event", "notification", "--session", \`\${key(id)}:wait\`, "--icon", ICON];
   if (message) args.push("--message", message);
   notify(args, cwd);
 }
