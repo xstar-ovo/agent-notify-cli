@@ -355,10 +355,12 @@ export default Plugin.define({
           group: "Agent Notify",
           slash: { name: "ack" },
           run: () => {
-            const route = ctx.ui.router.current();
-            if (route?.type !== "session") return;
-            clear(route.sessionID);
-            cancel(route.sessionID);
+            const route = ctx.route.current;
+            if (route?.name !== "session") return;
+            const id = route.params?.sessionID;
+            if (!id) return;
+            clear(id);
+            cancel(id);
           },
         },
       ],
