@@ -2,7 +2,7 @@
 
 给 AI 编码 Agent 用的统一通知 CLI：任务结束 / 需要你操作 / 出错时推到手机，可设置延迟，离开电脑时不用一直盯着终端。
 
-**当前支持：Pi + OpenCode V2 + Bark。** Claude Code 未内置自动安装，Telegram 渠道未实现。
+**当前支持：Claude Code + Pi + OpenCode V2 + Bark。** Telegram 渠道未实现。
 
 ## 安装
 
@@ -50,17 +50,31 @@ key 直接写进配置文件，重启 / 关机后仍生效，不依赖环境变�
 ## 接入 Agent
 
 ```bash
-agent-notify setup            # 写入检测到的 Pi 扩展和 OpenCode 插件
+agent-notify setup            # 写入检测到的 Claude Code hooks、Pi 扩展和 OpenCode 插件
 agent-notify setup --dry-run  # 只看会写什么，不动文件
 agent-notify setup --uninstall
 ```
 
-同时检测到 Pi 和 OpenCode 时两个都会写；`--dry-run` 会分别打印各自将写入的内容。
+同时检测到多个 Agent 时都会写入；`--dry-run` 会分别打印各自将写入的内容。Claude Code 会合并已有 `settings.json`，写入前备份，重复执行不会重复添加；状态栏会包装你原来的 statusLine，不会覆盖。
 
 | Agent | 写入位置 | 生效方式 |
 |---|---|---|
+| Claude Code | `~/.claude/settings.json`（hooks + statusLine）+ `agent-notify-statusline.cjs` + `commands/ack.md` | 新会话自动生效；当前会话可在 `/hooks` 里检查 |
 | Pi | `~/.pi/agent/extensions/agent-notify.ts` | 写完在 Pi 里 `/reload` |
 | OpenCode | `~/.config/opencode/plugins/agent-notify/`（`index.ts` 服务端 + `tui.tsx` 终端界面） | 重启 OpenCode（插件在启动时加载）；需 2.x（V2 插件 API），1.x 的事件和插件格式不同，不支持 |
+
+### Claude Code 行为
+
+- `Stop` 每轮回答结束都会触发，按 `delayMs.stop` 延迟推送；用户提交新提示词时由 `UserPromptSubmit` 撤销，不会每轮都响。
+- `Notification` 只匹配 `permission_prompt`，等待权限确认时立即提醒；不接 `idle_prompt`，避免和 `Stop` 重复。
+- `UserPromptSubmit` 调用 `--cancel --stdin-json`，按 Claude 的 `session_id` 撤销待发通知；不接 `SessionEnd`，否则 `claude -p` 这类短会话会在延迟到点前被取消，永远收不到完成通知。
+- 状态栏包装原来的 statusLine，每秒刷新；有待发通知时在一行末尾追加 `消息通知时间 HH:mm:ss · MM:SS 后`。
+- 输入 `/ack` 时，`UserPromptSubmit` hook 先取消当前会话待发通知，并返回 `decision: block`；Claude 不会生成回复。`disable-model-invocation: true` 禁止模型自动调用。
+- 卸载会恢复原 statusLine，并删除本工具生成的 `/ack`。
+- 正文优先取 `Notification` 的 `message`，其次取 `Stop` 的 `last_assistant_message`，截到 60 字；`--message` 仍然优先。
+- hook 命令使用 setup 时的 node 绝对路径和 `dist/cli.js` 绝对路径；换 node 版本或移动仓库后重跑 `agent-notify setup`。
+- 修改的是用户级 `~/.claude/settings.json`，只追加本工具的 hook 和状态栏包装；`--uninstall` 只删除这些条目并恢复原状态栏。
+- Claude Code 没有逐键输入事件；开始输入不会像 Pi/OpenCode 那样自动取消，提交时由 `UserPromptSubmit` 撤销。
 
 ### Pi 行为
 
@@ -91,6 +105,7 @@ agent-notify setup --uninstall
 
 正文是附加信息：完成时是「耗时 + 摘要」，等待提醒可能带表单标题，出错时只保留事件文案。标题 / 副标题 / 图标按 Agent 区分：
 
+- Claude Code：标题 = `claude · 项目目录`，副标题 = 事件（任务完成 / 任务出错 / 等待处理）
 - Pi：标题 = `pi · 项目目录`，副标题 = 事件（任务完成 / 任务出错 / 等待处理），图标 = Pi logo
 - OpenCode：标题 = `opencode · 项目目录`，图标 = OpenCode logo
 
@@ -142,7 +157,7 @@ agent-notify --event settled --title "重构 auth 模块" --message "改了 3 �
 | `agent-notify test` | 发一条测试通知（退出码 1 = 失败） |
 | `agent-notify flush` | 立即发送所有已到期的待发通知 |
 | `agent-notify key <bark-key>` | 把 Bark key 写入配置文件（持久化） |
-| `agent-notify setup [--dry-run] [--uninstall] [--yes]` | 写入 / 卸载检测到的 Pi 扩展和 OpenCode 插件 |
+| `agent-notify setup [--dry-run] [--uninstall] [--yes]` | 写入 / 卸载检测到的 Claude Code hooks、Pi 扩展和 OpenCode 插件 |
 | `agent-notify --help` | 用法 |
 
 选项（配合 `--event` 用，Agent 钩子也是这么调）：
