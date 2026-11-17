@@ -43,7 +43,7 @@ export const DEFAULT_DELAY_MS: Record<NotifyEvent, number> = {
   notification: NOTIFICATION_DELAY_MS,
 };
 
-/** 通知副标题（事件文案）。 */
+/** 通知正文里的事件文案（正文前缀）。 */
 export const TITLES: Record<NotifyEvent, string> = {
   stop: "任务完成",
   settled: "任务完成",
@@ -51,16 +51,11 @@ export const TITLES: Record<NotifyEvent, string> = {
   error: "任务出错",
 };
 
-/** 等待用户操作时用的副标题（覆盖 notification 的默认文案）。 */
-export const WAIT_TITLE = "需要你操作";
-
 /** 连弹多个确认框时，多久内只提醒一次。 */
 export const WAIT_REMINDER_MS = 60_000;
 
-/** 标题、副标题、正文的截断长度。 */
-export const MAX_TITLE = 60;
-export const MAX_SUBTITLE = 60;
-export const MAX_BODY = 200;
+/** 正文摘要的最大长度。 */
+export const MAX_BODY = 120;
 
 /** 推送正文里「最后一段回复」的摘要长度。 */
-export const SUMMARY_CHARS = 60;
+export const SUMMARY_CHARS = 200;

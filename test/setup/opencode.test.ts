@@ -4,6 +4,7 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { SUMMARY_CHARS } from "../../src/config/constant.js";
 import { openCodePluginContent, openCodeTuiContent } from "../../src/setup/opencode.js";
 
 /** 取两个标记之间的源码，用来断言某个事件分支真的干了活。 */
@@ -52,7 +53,7 @@ test("opencode plugin reports the last text and duration", () => {
   const src = openCodePluginContent();
   const text = between(src, 'case "session.text.ended"', 'case "session.execution.succeeded"');
   assert.match(text, /replace\(\/\\s\+\/g, " "\)/);
-  assert.match(text, /slice\(0, 60\)/);
+  assert.match(text, new RegExp(`slice\\(0, ${SUMMARY_CHARS}\\)`));
   const succeeded = between(src, 'case "session.execution.succeeded"', 'case "session.execution.failed"');
   assert.ok(succeeded.includes("用时"), "正文带耗时");
   assert.match(succeeded, /args\.push\("--message", message\)/);

@@ -43,31 +43,16 @@ test("bark posts json to endpoint with key substituted", async () => {
       return { status: 200, json: { code: 200, message: "success" } };
     },
     async (cfg) => {
-      await sendBark({ title: "任务完成", subtitle: "pi · demo", body: "改了 3 个文件" }, cfg);
+      await sendBark({ title: "任务完成", body: "改了 3 个文件" }, cfg);
     },
   );
   assert.equal(seen.url, "/KEY123");
   assert.deepEqual(seen.body, {
     title: "任务完成",
-    subtitle: "pi · demo",
     body: "改了 3 个文件",
     group: "agent-notify",
     level: "active",
   });
-});
-
-test("bark omits subtitle when empty", async () => {
-  const bodies: any[] = [];
-  await withStub(
-    (body) => {
-      bodies.push(body);
-      return { status: 200, json: { code: 200 } };
-    },
-    async (cfg) => {
-      await sendBark({ title: "t", subtitle: "", body: "b" }, cfg);
-    },
-  );
-  assert.equal("subtitle" in bodies[0], false);
 });
 
 test("bark adds icon: record icon wins over config icon", async () => {
@@ -78,7 +63,7 @@ test("bark adds icon: record icon wins over config icon", async () => {
       return { status: 200, json: { code: 200 } };
     },
     async (cfg) => {
-      const msg = { title: "t", subtitle: "s", body: "b" };
+      const msg = { title: "t", body: "b" };
       const withIcon = { ...cfg, bark: { ...cfg.bark, icon: "https://example.com/cfg.png" } };
       await sendBark(msg, withIcon, "https://example.com/pi.png");
       await sendBark(msg, withIcon);
@@ -94,7 +79,7 @@ test("bark throws on non-200 body code", async () => {
   await withStub(
     () => ({ status: 200, json: { code: 400, message: "bad key" } }),
     async (cfg) => {
-      await assert.rejects(() => sendBark({ title: "t", subtitle: "s", body: "b" }, cfg), /code=400/);
+      await assert.rejects(() => sendBark({ title: "t", body: "b" }, cfg), /code=400/);
     },
   );
 });
@@ -103,7 +88,7 @@ test("bark throws on http error", async () => {
   await withStub(
     () => ({ status: 500, json: {} }),
     async (cfg) => {
-      await assert.rejects(() => sendBark({ title: "t", subtitle: "s", body: "b" }, cfg), /status=500/);
+      await assert.rejects(() => sendBark({ title: "t", body: "b" }, cfg), /status=500/);
     },
   );
 });

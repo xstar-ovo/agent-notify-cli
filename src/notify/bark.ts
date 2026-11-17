@@ -20,7 +20,6 @@ export async function sendBark(
   const image = icon ?? cfg.bark.icon;
   const payload = {
     title: msg.title,
-    ...(msg.subtitle ? { subtitle: msg.subtitle } : {}),
     body: msg.body,
     group: cfg.bark.group,
     level: cfg.bark.level,
