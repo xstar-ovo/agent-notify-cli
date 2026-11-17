@@ -53,7 +53,11 @@ function hookMessage(stdin: Record<string, any> | undefined): string | undefined
 }
 
 export async function main(): Promise<void> {
-  process.exitCode = await run().catch(() => 0);
+  // hook 路径仍需 exit 0，但内部错误不能一声不响地截断输出。
+  process.exitCode = await run().catch((err) => {
+    console.error(`agent-notify 内部错误：${err instanceof Error ? err.message : String(err)}`);
+    return 0;
+  });
 }
 
 // 让 `node dist/cli.js …` 可直接运行（分离的唤醒进程依赖这一点）；bin 里也会调用 main()。

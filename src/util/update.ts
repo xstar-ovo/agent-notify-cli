@@ -35,8 +35,9 @@ export function isNewer(a: string, b: string): boolean {
 
 function readCache(): string | undefined {
   try {
-    const cached = JSON.parse(readFileSync(cacheFile, "utf8")) as { at?: number; latest?: string };
-    return typeof cached.at === "number" && Date.now() - cached.at < TTL_MS ? cached.latest : undefined;
+    const cached = JSON.parse(readFileSync(cacheFile, "utf8")) as { at?: number; latest?: unknown };
+    return typeof cached.at === "number" && typeof cached.latest === "string" &&
+      Date.now() - cached.at < TTL_MS ? cached.latest : undefined;
   } catch {
     return undefined;
   }
