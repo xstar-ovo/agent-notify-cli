@@ -71,7 +71,7 @@ agent-notify setup --uninstall
 - 状态栏包装原来的 statusLine，每秒刷新；有待发通知时在一行末尾追加 `消息通知时间 HH:mm:ss · MM:SS 后`。
 - 输入 `/ack` 时，`UserPromptSubmit` hook 先取消当前会话待发通知，并返回 `decision: block`；Claude 不会生成回复。`disable-model-invocation: true` 禁止模型自动调用。
 - 卸载会恢复原 statusLine，并删除本工具生成的 `/ack`。
-- 正文优先取 `Notification` 的 `message`，其次取 `Stop` 的 `last_assistant_message`，截到 60 字；`--message` 仍然优先。
+- 正文优先取 `Notification` 的 `message`，其次取 `Stop` 的 `last_assistant_message`，截到 50 字；`--message` 仍然优先。
 - hook 命令使用 setup 时的 node 绝对路径和 `dist/cli.js` 绝对路径；换 node 版本或移动仓库后重跑 `agent-notify setup`。
 - 修改的是用户级 `~/.claude/settings.json`，只追加本工具的 hook 和状态栏包装；`--uninstall` 只删除这些条目并恢复原状态栏。
 - Claude Code 没有逐键输入事件；开始输入不会像 Pi/OpenCode 那样自动取消，提交时由 `UserPromptSubmit` 撤销。
@@ -80,7 +80,7 @@ agent-notify setup --uninstall
 
 - `agent_start` 记开始时间，`agent_settled` 按配置延迟发送。
 - 出错记为「任务出错」（读 `agent_before_settle` 的 `outcome`），不会误报「任务完成」；自己按 Esc 打断则不推。
-- 正文带耗时和最后一条回复前 60 字的摘要，手机上能看出该不该回去看。
+- 正文带耗时和最后一条回复前 50 字的摘要，手机上能看出该不该回去看。
 - `agent_start`、`input`、`session_shutdown`、`ui_prompt_end` 取消该会话的待发通知，避免人已经回来了还响。
 - 连弹多个确认框 1 分钟内只提醒一次。
 - 等待期间底部状态栏显示「通知 2分41秒 后推送 · /ack 取消」，倒数到 1 秒内自动消失。
@@ -92,7 +92,7 @@ agent-notify setup --uninstall
 ### OpenCode 行为
 
 - `session.execution.succeeded` / `failed` 推送完成 / 出错；`interrupted`（自己按 Esc、关机、被新任务取代、长时间不活跃）不推。
-- 正文带耗时和最后一段回复前 60 字的摘要。
+- 正文带耗时和最后一段回复前 50 字的摘要。
 - 收到新提示词或新执行开始时，撤销该会话还没发出的通知；`session.deleted` 也会清理。
 - `permission.asked` / `form.created` 立即提醒「需要你操作」，1 分钟内只提醒一次；`permission.replied` / `form.replied` / `form.cancelled` 后撤销。
 - 子代理（subagent）的会话不单独推送，也不显示 TUI 倒计时，避免一个任务弹一串通知。
@@ -103,38 +103,37 @@ agent-notify setup --uninstall
 
 ### 通知格式
 
-正文是附加信息：完成时是「耗时 + 摘要」，等待提醒可能带表单标题，出错时只保留事件文案。标题 / 副标题 / 图标按 Agent 区分：
+只有标题和正文两行，没有副标题。标题是 Agent 名（如 `claude` / `pi` / `opencode`），正文以事件文案（任务完成 / 任务出错 / 等待处理）开头，后接「耗时 + 摘要」；附加信息在正文里用 ` · ` 接在事件文案后面。摘要按**第一句的句号或换行**截断，找不到句号才按 120 字硬截断。图标按 Agent 区分：
 
-- Claude Code：标题 = `claude · 项目目录`，副标题 = 事件（任务完成 / 任务出错 / 等待处理）
-- Pi：标题 = `pi · 项目目录`，副标题 = 事件（任务完成 / 任务出错 / 等待处理），图标 = Pi logo
-- OpenCode：标题 = `opencode · 项目目录`，图标 = OpenCode logo
+- Claude Code：标题 = `claude`
+- Pi：标题 = `pi`，图标 = Pi logo
+- OpenCode：标题 = `opencode`，图标 = OpenCode logo
 
-`--title` 改副标题，`--message` 改正文，`--icon` 改图标，可以组合使用：
+`--message` 改附加信息，`--icon` 改图标，可以组合使用：
 
 ```bash
-agent-notify --event settled --title "重构 auth 模块" --message "改了 3 个文件" --icon https://example.com/x.png
+agent-notify --event settled --message "改了 3 个文件。" --icon https://example.com/x.png
 ```
 
 终端上看是这样（Pi）：
 
 ```
 ┌─────────────────────────────
-│ pi · my-project
-│ 任务完成
-│ 用时 4分12秒 · 改完了 auth 中间件
+│ pi
+│ 任务完成 · 用时 4分12秒 · 改完了 auth 中间件。
 └─────────────────────────────
 ```
 
 ## 事件语义
 
-| 事件 | 含义 | 默认副标题 | 默认延迟 |
+| 事件 | 含义 | 默认正文前缀 | 默认延迟 |
 |---|---|---|---|
 | `settled` | Agent 任务真正结束（Pi 的 `agent_settled` / OpenCode 的 `session.execution.succeeded`） | 任务完成 | 5 分钟 |
 | `stop` | Claude Code Stop hook：一轮回答结束 | 任务完成 | 5 分钟 |
 | `notification` | 需要你操作（等确认 / 等输入） | 等待处理 | 立即 |
 | `error` | 任务出错 | 任务出错 | 立即 |
 
-`--title` 覆盖副标题（事件文案），`--message` 覆盖正文。哪个渠道收哪个事件由 `events.<事件>.bark` 控制。
+`--message` 覆盖附加信息；事件文案固定由事件类型决定。哪个渠道收哪个事件由 `events.<事件>.bark` 控制。
 
 ## 延迟通知
 
@@ -167,8 +166,8 @@ agent-notify --event settled --title "重构 auth 模块" --message "改了 3 �
 | `--event <stop\|settled\|notification\|error>` | 触发哪个事件 |
 | `--delay <秒>` | 覆盖该事件的延迟，详见「延迟通知」 |
 | `--session <id>` | 去重 / 取消用的键，同 session 只留最新一条 |
-| `--message <text>` | 附加到正文 |
-| `--title <text>` / `--icon <url>` | 覆盖副标题 / 图标 |
+| `--message <text>` | 附加到正文（首句截断） |
+| `--icon <url>` | 覆盖图标 |
 | `--agent <name>` | 标题前缀，默认 `agent`（读到 Claude hook JSON 时自动用 `claude`） |
 | `--stdin-json` | 从 stdin 读 Agent 传入的 hook JSON（300ms 超时，不阻塞） |
 | `--cancel` | 取消该 session 的待发通知 |
@@ -190,7 +189,7 @@ agent-notify --event stop --delay 0 --message "手动测试"   # 2) 整条链路
 
 ## 隐私与数据流
 
-通知内容（Agent 名、项目目录名、任务名或消息摘要）经 `bark.endpoint` 转发到你的设备，默认是公共服务器 `api.day.app`；介意就自建 [bark-server](https://github.com/Finb/bark-server) 后改 `endpoint`。除这一个请求外没有遥测、没有其他出站连接。Bark key 只存本机配置文件，仓库和发布包里不含任何密钥。
+通知内容（Agent 名、事件文案或消息摘要）经 `bark.endpoint` 转发到你的设备，默认是公共服务器 `api.day.app`；介意就自建 [bark-server](https://github.com/Finb/bark-server) 后改 `endpoint`。除这一个请求外没有遥测、没有其他出站连接。Bark key 只存本机配置文件，仓库和发布包里不含任何密钥。
 
 ## 开发
 
