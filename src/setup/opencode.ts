@@ -356,11 +356,18 @@ export default Plugin.define({
           slash: { name: "ack" },
           run: () => {
             const route = ctx.route.current;
-            if (route?.name !== "session") return;
-            const id = route.params?.sessionID;
-            if (!id) return;
+            const current = route?.name === "session" ? route.params?.sessionID : undefined;
+            // 命令面板/路由切换时 route 可能不是 session，退回最近一条待发记录
+            const fallback = Object.keys(state.due).sort((a, b) => state.due[a] - state.due[b])[0];
+            const id = current ?? fallback;
+            if (!id) {
+              report(\`ack: no pending session (route=\${route?.name})\`);
+              ctx.ui.toast({ variant: "info", message: "没有待发通知" });
+              return;
+            }
             clear(id);
             cancel(id);
+            ctx.ui.toast({ variant: "success", message: "已取消待发通知" });
           },
         },
       ],
