@@ -190,6 +190,17 @@ agent-notify notify settled --message "改了 3 个文件。" --icon https://exa
 
 `notify` / `cancel` / `flush` 永远 `exit 0`（未知命令、未知事件也只往 stderr 提示）：通知失败只写 `~/.config/agent-notify/error.log`（已脱敏，>1MB 轮转），绝不打断 Agent。`test` / `doctor` / `key` 会返回非 0 表示问题。
 
+## 卸载
+
+先移除已写入的条目，再卸载 npm 包。顺序反了，hooks 会指向已删除的 `dist/cli.js`，每次 Stop 都报 `Cannot find module`（`agent-notify doctor` 会提示）：
+
+```bash
+agent-notify uninstall          # 移除 hooks / 扩展 / 插件，恢复原状态栏
+npm uninstall -g agent-notify-cli
+```
+
+CLI 已经删掉的话用 `npx -y agent-notify-cli uninstall` 兜底。`npm uninstall` 本身不会清理任何写入项。配置目录 `~/.config/agent-notify/`（含 Bark key、待发通知）不会删除，重装后还能用。
+
 ## 自检与排障
 
 ```bash
