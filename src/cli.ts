@@ -11,6 +11,7 @@ import { configPath } from "./config/paths.js";
 import { clamp, DEFAULT_DELAY_MS, EVENTS, type AgentNotifyConfig, type NotifyEvent } from "./config/schema.js";
 import { sendNow } from "./notify/index.js";
 import { cancel, enqueue, sendDue, sweepDue, wake, type PendingNotification } from "./notify/scheduler.js";
+import { detectOpenCode, openCodePluginContent, openCodeTuiContent, OPENCODE_PLUGIN_ROOT, removeOpenCodePlugin, writeOpenCodePlugin } from "./setup/opencode.js";
 import { detectPi, piExtensionContent, PI_EXTENSION_PATH, removePiExtension, writePiExtension } from "./setup/pi.js";
 import { appendLog } from "./util/log.js";
 import { redact } from "./util/redact.js";
@@ -196,25 +197,29 @@ async function testCommand(config: AgentNotifyConfig, warnings: string[]): Promi
 }
 
 async function setupCommand(dryRun: boolean, uninstall: boolean, yes: boolean): Promise<number> {
-  const detected = detectPi();
+  const pi = detectPi();
+  const opencode = detectOpenCode();
 
   if (uninstall) {
-    const removed = removePiExtension();
-    console.log(removed ? `已移除 ${PI_EXTENSION_PATH}` : "未找到本工具生成的 Pi 扩展");
+    console.log(removePiExtension() ? `已移除 ${PI_EXTENSION_PATH}` : "未找到本工具生成的 Pi 扩展");
+    console.log(removeOpenCodePlugin() ? `已移除 ${OPENCODE_PLUGIN_ROOT}` : "未找到本工具生成的 OpenCode 插件");
     return 0;
   }
 
   console.log("正在检测本机 Agent...\n");
-  console.log(detected ? `  [1] Pi (${detected})` : "  （未检测到 Pi）");
-  if (!detected) return 0;
+  console.log(pi ? `  [1] Pi (${pi})` : "  （未检测到 Pi）");
+  console.log(opencode ? `  [2] OpenCode V2 (${opencode})` : "  （未检测到 OpenCode）");
+  if (!pi && !opencode) return 0;
 
   console.log(`\n将执行以下修改：`);
-  console.log(`  • Pi: 写入 ${PI_EXTENSION_PATH}`);
+  if (pi) console.log(`  • Pi: 写入 ${PI_EXTENSION_PATH}`);
+  if (opencode) console.log(`  • OpenCode: 写入 ${OPENCODE_PLUGIN_ROOT}（服务端 index.ts + TUI tui.tsx）`);
   console.log(`  • 配置: ${configPath}${dryRun ? "（dry-run，不写入）" : ensureConfigFile() ? "（已创建默认配置）" : "（已存在，不修改）"}`);
   console.log(`\n通知默认延迟：stop/settled ${DEFAULT_DELAY_MS.stop / 60_000} 分钟，error/notification 立即（可在配置 delayMs 调整）`);
 
   if (dryRun) {
-    console.log(`\n--- ${PI_EXTENSION_PATH} ---\n${piExtensionContent()}`);
+    if (pi) console.log(`\n--- ${PI_EXTENSION_PATH} ---\n${piExtensionContent()}`);
+    if (opencode) console.log(`\n--- ${OPENCODE_PLUGIN_ROOT}/index.ts ---\n${openCodePluginContent()}\n\n--- ${OPENCODE_PLUGIN_ROOT}/tui.tsx ---\n${openCodeTuiContent()}`);
     return 0;
   }
 
@@ -232,11 +237,12 @@ async function setupCommand(dryRun: boolean, uninstall: boolean, yes: boolean): 
     }
   }
 
-  const result = writePiExtension();
-  console.log(`\n${result === "written" ? "已写入" : "已是最新"} Pi 扩展`);
+  if (pi) console.log(`\n${writePiExtension() === "written" ? "已写入" : "已是最新"} Pi 扩展`);
+  if (opencode) console.log(`${writeOpenCodePlugin() === "written" ? "已写入" : "已是最新"} OpenCode 插件`);
   console.log("\n下一步：写入 Bark 凭据（持久化，重启后仍生效）");
   console.log("  agent-notify key <你的BarkKey>");
   console.log("  然后 agent-notify test");
-  console.log("\nPi 正在运行时执行 /reload 以加载扩展。");
+  if (pi) console.log("\nPi 正在运行时执行 /reload 以加载扩展。");
+  if (opencode) console.log("OpenCode 重启后自动加载插件。");
   return 0;
 }

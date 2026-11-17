@@ -1,7 +1,7 @@
 {
   "name": "agent-notify-cli",
   "version": "0.1.0",
-  "description": "Unified phone notifications for AI coding agents (Bark, Pi): task done, needs input, errors, with delayed delivery",
+  "description": "Unified phone notifications for AI coding agents (Bark, Pi, OpenCode): task done, needs input, errors, with delayed delivery",
   "keywords": [
     "bark",
     "notification",
