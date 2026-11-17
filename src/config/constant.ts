@@ -1,0 +1,66 @@
+/**
+ * 文件功能：通知时间、默认文案与正文长度等固定常量。
+ */
+
+export const EVENTS = ["stop", "notification", "error", "settled"] as const;
+export type NotifyEvent = (typeof EVENTS)[number];
+
+/**
+ * 延迟常量：都写成 分钟 * 60 * 1000，改前面的分钟数就行。
+ *
+ * - 完成类（stop/settled）要缓一下：人大概率还在屏幕前，或者马上接着追问，
+ *   立刻推就是噪音；缓几分钟还没动静，才是真的离开了。
+ * - 出错和等你操作要立即：这两种是「不推就会浪费你的时间」——报错了你可能在白等，
+ *   等你确认时任务已经卡死，缓几分钟毫无意义。
+ */
+
+/** Claude Code Stop hook 触发（一轮回答结束，可能还有后续）。 */
+export const STOP_DELAY_MS = 5 * 60 * 1000;
+
+/** Pi agent_settled 触发（任务真的结束，不会自动继续）。 */
+export const SETTLED_DELAY_MS = 5 * 60 * 1000;
+
+/** 任务出错，立即推。 */
+export const ERROR_DELAY_MS = 0;
+
+/** 需要你操作（等确认 / 等输入），立即推。 */
+export const NOTIFICATION_DELAY_MS = 0;
+
+/**
+ * 延迟的上限，分两层：
+ * - MAX_DELAY_MS 是默认值，用户可以改（--delay 或 config 的 delayMs.max），
+ *   用来套住单条延迟，避免把通知拖到信息过期。
+ * - MAX_DELAY_CEILING_MS 是代码里的硬上限，配置再怎么写也不会超过它，
+ *   避免写错一个 0（比如 5 小时）就把 waker 子进程挂一整天。
+ */
+export const MAX_DELAY_MS = 10 * 60 * 1000;
+export const MAX_DELAY_CEILING_MS = 30 * 60 * 1000;
+
+export const DEFAULT_DELAY_MS: Record<NotifyEvent, number> = {
+  stop: STOP_DELAY_MS,
+  settled: SETTLED_DELAY_MS,
+  error: ERROR_DELAY_MS,
+  notification: NOTIFICATION_DELAY_MS,
+};
+
+/** 通知副标题（事件文案）。 */
+export const TITLES: Record<NotifyEvent, string> = {
+  stop: "任务完成",
+  settled: "任务完成",
+  notification: "等待处理",
+  error: "任务出错",
+};
+
+/** 等待用户操作时用的副标题（覆盖 notification 的默认文案）。 */
+export const WAIT_TITLE = "需要你操作";
+
+/** 连弹多个确认框时，多久内只提醒一次。 */
+export const WAIT_REMINDER_MS = 60_000;
+
+/** 标题、副标题、正文的截断长度。 */
+export const MAX_TITLE = 60;
+export const MAX_SUBTITLE = 60;
+export const MAX_BODY = 200;
+
+/** 推送正文里「最后一段回复」的摘要长度。 */
+export const SUMMARY_CHARS = 60;

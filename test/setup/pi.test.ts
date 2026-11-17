@@ -102,6 +102,17 @@ test("pi extension shows a countdown for the pending notification", () => {
   assert.match(handlerOf(src, "ui_prompt_start"), /clearCountdown\(\)/, "立即推送时不再倒计时");
 });
 
+test("pi extension uses the same delay defaults and caps as the cli", () => {
+  const src = piExtensionContent();
+  assert.match(src, /const DEFAULT_DELAYS = /);
+  assert.match(src, /const MAX_DELAY = /);
+  assert.match(src, /const CEILING = /);
+  assert.match(src, /DEFAULT_DELAYS\[event\]/);
+  assert.match(src, /cfg\?\.delayMs\?\.max/);
+  assert.match(src, /Math\.min\([^;]*CEILING\)/);
+  assert.ok(!src.includes("FALLBACK_DELAY_MS"), "不再用 3 分钟硬编码兜底");
+});
+
 test("pi extension lets the user cancel pending notifications by hand", () => {
   const src = piExtensionContent();
   assert.match(src, /pi\.registerShortcut\("ctrl\+shift\+k"/);

@@ -6,6 +6,14 @@ import { existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import {
+  DEFAULT_DELAY_MS,
+  MAX_DELAY_CEILING_MS,
+  MAX_DELAY_MS,
+  SUMMARY_CHARS,
+  WAIT_REMINDER_MS,
+  WAIT_TITLE,
+} from "../config/constant.js";
 import { atomicWriteText } from "../util/atomic.js";
 
 export const PI_AGENT_DIR = path.join(os.homedir(), ".pi", "agent");
@@ -22,10 +30,13 @@ import os from "node:os";
 import path from "node:path";
 
 const CLI = ${JSON.stringify(CLI_PATH)};
-const WAIT_TITLE = "需要你操作";
+const WAIT_TITLE = ${JSON.stringify(WAIT_TITLE)};
 const ICON = "https://raw.githubusercontent.com/earendil-works/pi/main/apps/p2/public/icons/icon-192.png";
 const LOG = path.join(os.homedir(), ".config", "agent-notify", "extension-error.log");
 const CFG = path.join(os.homedir(), ".config", "agent-notify", "config.json");
+const DEFAULT_DELAYS = ${JSON.stringify(DEFAULT_DELAY_MS)};
+const MAX_DELAY = ${MAX_DELAY_MS};
+const CEILING = ${MAX_DELAY_CEILING_MS};
 // 会话标识先用 pid 兜底，拿到 Pi 的会话 id 后换掉：崩溃残留的待发记录，恢复会话时也能撤销
 let KEY = \`pi:\${process.pid}\`;
 let ui: any = null;
@@ -69,13 +80,16 @@ function fmt(ms: number): string {
   return sec < 60 ? \`\${sec}秒\` : \`\${Math.floor(sec / 60)}分\${sec % 60}秒\`;
 }
 
-// 延迟值就在配置文件里（扩展不传 --delay），读不到按 3 分钟
-function delayFor(event: string): number {
+// 延迟值就在配置文件里（扩展不传 --delay），按事件取默认值，再按 max 和硬上限截断。
+function delayFor(event: "settled" | "error"): number {
+  const fallback = DEFAULT_DELAYS[event];
   try {
-    const ms = JSON.parse(readFileSync(CFG, "utf8"))?.delayMs?.[event];
-    return typeof ms === "number" ? ms : 180000;
+    const cfg = JSON.parse(readFileSync(CFG, "utf8"));
+    const max = Math.min(Number.isFinite(Number(cfg?.delayMs?.max)) ? Number(cfg.delayMs.max) : MAX_DELAY, CEILING);
+    const raw = Number(cfg?.delayMs?.[event] ?? fallback);
+    return Math.max(0, Math.min(Number.isFinite(raw) ? raw : fallback, max));
   } catch {
-    return 180000;
+    return fallback;
   }
 }
 
@@ -125,7 +139,7 @@ export default function (pi: any) {
   pi.on("ui_prompt_start", (_event: any, ctx: any) => {
     adopt(ctx);
     clearCountdown(); // 这一条立即发，没有倒计时
-    if (Date.now() - lastWaitAt < 60_000) return; // 连弹几个确认框只提醒一次
+    if (Date.now() - lastWaitAt < ${WAIT_REMINDER_MS}) return; // 连弹几个确认框只提醒一次
     lastWaitAt = Date.now();
     notify(["--event", "notification", "--session", \`\${KEY}:wait\`, "--title", WAIT_TITLE, "--icon", ICON]);
   });
@@ -138,7 +152,7 @@ export default function (pi: any) {
       .filter((c: any) => c?.type === "text")
       .map((c: any) => c.text)
       .join(" ");
-    summary = text.replace(/\\s+/g, " ").trim().slice(0, 60);
+    summary = text.replace(/\\s+/g, " ").trim().slice(0, ${SUMMARY_CHARS});
   });
   // 唯一带 outcome 的事件（completed / aborted / error）；被中断的 run 不会触发它
   pi.on("agent_before_settle", (event: any, ctx: any) => {

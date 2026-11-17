@@ -3,7 +3,7 @@
  */
 
 import path from "node:path";
-import type { NotifyEvent } from "../config/schema.js";
+import { MAX_BODY, MAX_SUBTITLE, MAX_TITLE, TITLES, type NotifyEvent } from "../config/constant.js";
 
 export interface NotifyRecord {
   event: NotifyEvent;
@@ -11,7 +11,7 @@ export interface NotifyRecord {
   cwd?: string;
   session?: string;
   message?: string;
-  /** 覆盖该事件的默认标题。 */
+  /** 覆盖该事件的默认文案（现在显示为副标题）。 */
   title?: string;
   /** 覆盖本条通知的 config.bark.icon。 */
   icon?: string;
@@ -23,17 +23,6 @@ export interface NotifyMessage {
   body: string;
 }
 
-const TITLES: Record<NotifyEvent, string> = {
-  stop: "任务完成",
-  settled: "任务完成",
-  notification: "等待处理",
-  error: "任务出错",
-};
-
-const MAX_TITLE = 60;
-const MAX_SUBTITLE = 60;
-const MAX_BODY = 200;
-
 function clamp(text: string, max: number): string {
   return text.length <= max ? text : `${text.slice(0, max - 1)}…`;
 }
@@ -42,8 +31,8 @@ export function build(rec: NotifyRecord): NotifyMessage {
   const project = rec.cwd ? path.basename(rec.cwd) : undefined;
   const custom = rec.title?.replace(/\s+/g, " ").trim();
   return {
-    title: custom ? clamp(custom, MAX_TITLE) : TITLES[rec.event],
-    subtitle: clamp([rec.agent ?? "agent", project].filter(Boolean).join(" · "), MAX_SUBTITLE),
+    title: clamp([rec.agent ?? "agent", project].filter(Boolean).join(" · "), MAX_TITLE),
+    subtitle: custom ? clamp(custom, MAX_SUBTITLE) : TITLES[rec.event],
     body: clamp(rec.message ?? "", MAX_BODY),
   };
 }
