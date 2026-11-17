@@ -4,7 +4,7 @@
 
 ## 不可破坏的不变量（动手前必读）
 
-- 除 `test` 外永远 `exit 0`：通知失败只写 `error.log`，绝不打断 agent
+- hook 路径（`notify` / `cancel` / `flush` / `_wake` / `_statusline`）永远 `exit 0`，未知命令、未知事件也只往 stderr 提示：通知失败只写 `error.log`，绝不打断 agent；`test` / `doctor` / `key` 这类手动命令可以非 0
 - 零运行时依赖，Node >= 20，只用内置 `fetch`
 - Bark key 只存本机配置，不进仓库、不进发布包
 - `dist/` 是编译产物，不手改；改 `src/` 后执行 `npm run build`

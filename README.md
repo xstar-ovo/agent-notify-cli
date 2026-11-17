@@ -26,8 +26,11 @@ npm link           # 之后任意目录可用 an 或 agent-notify
 ## 配置 Bark
 
 ```bash
-agent-notify key 你的BarkKey
+agent-notify setup            # 交互式，会直接提示粘贴 key（推荐）
+agent-notify key 你的BarkKey   # 也可以单独写
 ```
+
+`setup` 结束时若配置文件里还没有有效 key，会提示粘贴：可贴 Bark App 首页那一串，也可贴整条 `https://api.day.app/<key>` 链接；直接回车则跳过，之后用 `agent-notify key` 补。已经配置过就只显示打码结果，不重复问。
 
 key 直接写进配置文件，重启 / 关机后仍生效，不依赖环境变量。配置文件：`~/.config/agent-notify/config.json`（Windows: `C:\Users\<你>\.config\agent-notify\config.json`），也可以手改。
 
@@ -50,9 +53,9 @@ key 直接写进配置文件，重启 / 关机后仍生效，不依赖环境变�
 ## 接入 Agent
 
 ```bash
-agent-notify setup            # 写入检测到的 Claude Code hooks、Pi 扩展和 OpenCode 插件
+agent-notify setup            # 写入检测到的 Claude Code hooks、Pi 扩展和 OpenCode 插件，并提示粘贴 Bark key
 agent-notify setup --dry-run  # 只看会写什么，不动文件
-agent-notify setup --uninstall
+agent-notify uninstall        # 移除本工具写入的条目
 ```
 
 同时检测到多个 Agent 时都会写入；`--dry-run` 会分别打印各自将写入的内容。Claude Code 会合并已有 `settings.json`，写入前备份，重复执行不会重复添加；状态栏会包装你原来的 statusLine，不会覆盖。
@@ -67,13 +70,13 @@ agent-notify setup --uninstall
 
 - `Stop` 每轮回答结束都会触发，按 `delayMs.stop` 延迟推送；用户提交新提示词时由 `UserPromptSubmit` 撤销，不会每轮都响。
 - `Notification` 只匹配 `permission_prompt`，等待权限确认时立即提醒；不接 `idle_prompt`，避免和 `Stop` 重复。
-- `UserPromptSubmit` 调用 `--cancel --stdin-json`，按 Claude 的 `session_id` 撤销待发通知；不接 `SessionEnd`，否则 `claude -p` 这类短会话会在延迟到点前被取消，永远收不到完成通知。
+- `UserPromptSubmit` 调用 `cancel --stdin-json`，按 Claude 的 `session_id` 撤销待发通知；不接 `SessionEnd`，否则 `claude -p` 这类短会话会在延迟到点前被取消，永远收不到完成通知。
 - 状态栏包装原来的 statusLine，每秒刷新；有待发通知时在一行末尾追加 `消息通知时间 HH:mm:ss · MM:SS 后`。
 - 输入 `/ack` 时，`UserPromptSubmit` hook 先取消当前会话待发通知，并返回 `decision: block`；Claude 不会生成回复。`disable-model-invocation: true` 禁止模型自动调用。
 - 卸载会恢复原 statusLine，并删除本工具生成的 `/ack`。
 - 正文优先取 `Notification` 的 `message`，其次取 `Stop` 的 `last_assistant_message`，截到 50 字；`--message` 仍然优先。
 - hook 命令使用 setup 时的 node 绝对路径和 `dist/cli.js` 绝对路径；换 node 版本或移动仓库后重跑 `agent-notify setup`。
-- 修改的是用户级 `~/.claude/settings.json`，只追加本工具的 hook 和状态栏包装；`--uninstall` 只删除这些条目并恢复原状态栏。
+- 修改的是用户级 `~/.claude/settings.json`，只追加本工具的 hook 和状态栏包装；`agent-notify uninstall` 只删除这些条目并恢复原状态栏。
 - Claude Code 没有逐键输入事件；开始输入不会像 Pi/OpenCode 那样自动取消，提交时由 `UserPromptSubmit` 撤销。
 
 ### Pi 行为
@@ -112,7 +115,7 @@ agent-notify setup --uninstall
 `--message` 改附加信息，`--icon` 改图标，可以组合使用：
 
 ```bash
-agent-notify --event settled --message "改了 3 个文件。" --icon https://example.com/x.png
+agent-notify notify settled --message "改了 3 个文件。" --icon https://example.com/x.png
 ```
 
 终端上看是这样（Pi）：
@@ -142,43 +145,57 @@ agent-notify --event settled --message "改了 3 个文件。" --icon https://ex
 - 按事件配置：`delayMs.stop` / `delayMs.settled` / `delayMs.error` / `delayMs.notification`（毫秒）。
 - 单次覆盖：`--delay <秒>`，`0` = 立即；超过 `delayMs.max`（默认 600000，可调，上限 1800000）会被截断。
 - 同一 session 在延迟期内再次触发会**覆盖**上一条，任务重新开始就不会误报完成。
-- `--cancel --session <id>` 撤销；`agent_start` 等钩子会自动撤销。
+- `agent-notify cancel --session <id>` 撤销；`agent_start` 等钩子会自动撤销。
 - 多条同时到期聚合成一条（`aggregateWindowMs`，默认 5 秒），不刷屏。
 - 待发通知落盘在 `~/.config/agent-notify/state/pending/*.json`，每条一个独立 waker 子进程；Hook 主进程从不 sleep，1 秒内返回。
 - 取舍：关机 / 休眠会杀掉 waker，待发通知在下次任何事件、`flush` 或下次打开会话时补发（可能迟到）。
 
 ## 命令
 
-子命令：
+发送：
+
+| 命令 | 说明 |
+|---|---|
+| `agent-notify notify <stop\|settled\|notification\|error>` | 触发一次通知（Agent 钩子就是这么调的） |
+| `agent-notify cancel [--session <id>]` | 取消该 session 的待发通知 |
+| `agent-notify flush` | 立即发送所有已到期的待发通知 |
+
+管理：
+
+| 命令 | 说明 |
+|---|---|
+| `agent-notify setup [--dry-run] [--yes]` | 写入检测到的 Claude Code hooks、Pi 扩展和 OpenCode 插件；交互运行时还会提示粘贴 Bark key |
+| `agent-notify uninstall` | 移除本工具写入的 hooks / 扩展 / 插件，并恢复原状态栏 |
+| `agent-notify key <bark-key>` | 把 Bark key 写入配置文件（持久化） |
+
+诊断：
 
 | 命令 | 说明 |
 |---|---|
 | `agent-notify test` | 发一条测试通知（退出码 1 = 失败） |
-| `agent-notify flush` | 立即发送所有已到期的待发通知 |
-| `agent-notify key <bark-key>` | 把 Bark key 写入配置文件（持久化） |
-| `agent-notify setup [--dry-run] [--uninstall] [--yes]` | 写入 / 卸载检测到的 Claude Code hooks、Pi 扩展和 OpenCode 插件 |
+| `agent-notify status` | 当前配置和待发通知（还剩多久） |
+| `agent-notify doctor` | 自查：配置、key、node / CLI 路径、各 Agent 的接入状态（退出码 1 = 有硬错误） |
 | `agent-notify --help` | 用法 |
 
-选项（配合 `--event` 用，Agent 钩子也是这么调）：
+`notify` 的选项：
 
 | 选项 | 说明 |
 |---|---|
-| `--event <stop\|settled\|notification\|error>` | 触发哪个事件 |
 | `--delay <秒>` | 覆盖该事件的延迟，详见「延迟通知」 |
 | `--session <id>` | 去重 / 取消用的键，同 session 只留最新一条 |
 | `--message <text>` | 附加到正文（首句截断） |
 | `--icon <url>` | 覆盖图标 |
 | `--agent <name>` | 标题前缀，默认 `agent`（读到 Claude hook JSON 时自动用 `claude`） |
 | `--stdin-json` | 从 stdin 读 Agent 传入的 hook JSON（300ms 超时，不阻塞） |
-| `--cancel` | 取消该 session 的待发通知 |
 
-除 `test` 外永远 `exit 0`：通知失败只写 `~/.config/agent-notify/error.log`（已脱敏，>1MB 轮转），绝不打断 Agent。
+`notify` / `cancel` / `flush` 永远 `exit 0`（未知命令、未知事件也只往 stderr 提示）：通知失败只写 `~/.config/agent-notify/error.log`（已脱敏，>1MB 轮转），绝不打断 Agent。`test` / `doctor` / `key` 会返回非 0 表示问题。
 
 ## 自检与排障
 
 ```bash
+agent-notify doctor                        # 0) 配置 / key / 接入状态一次看完
 agent-notify test                          # 1) 渠道通不通
-agent-notify --event stop --delay 0 --message "手动测试"   # 2) 整条链路通不通
+agent-notify notify stop --delay 0 --message "手动测试"   # 2) 整条链路通不通
 ```
 
 没收到通知时按顺序查：
