@@ -217,7 +217,7 @@ agent-notify notify stop --delay 0 --message "手动测试"   # 2) 整条链路�
 
 ## 隐私与数据流
 
-通知内容（Agent 名、事件文案或消息摘要）经 `bark.endpoint` 转发到你的设备，默认是公共服务器 `api.day.app`；介意就自建 [bark-server](https://github.com/Finb/bark-server) 后改 `endpoint`。除这一个请求外没有遥测、没有其他出站连接。Bark key 只存本机配置文件，仓库和发布包里不含任何密钥。
+通知内容（Agent 名、事件文案或消息摘要）经 `bark.endpoint` 转发到你的设备，默认是公共服务器 `api.day.app`；介意就自建 [bark-server](https://github.com/Finb/bark-server) 后改 `endpoint`。除此之外只有手动命令（`status` / `doctor`）在缓存过期时请求一次 npm registry 查最新版本（结果缓存 24 小时，只读版本号，不上传任何本地数据）；hook 路径不发任何额外请求。没有遥测、没有其他出站连接。Bark key 只存本机配置文件，仓库和发布包里不含任何密钥。
 
 ## 开发
 
