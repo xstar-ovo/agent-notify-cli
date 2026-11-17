@@ -2,32 +2,40 @@
  * 文件功能：CLI 入口：解析参数并把子命令分发到具体实现（事件入队 / 取消 / 补发 / setup / test / key）。
  */
 
+import { existsSync } from "node:fs";
 import path from "node:path";
 import { createInterface } from "node:readline/promises";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
-import { ensureConfigFile, loadConfig, saveDeviceKey } from "./config/loader.js";
+import { ensureConfigFile, loadConfig, parseBarkKeyInput, saveDeviceKey } from "./config/loader.js";
 import { configPath } from "./config/paths.js";
 import { clamp, DEFAULT_DELAY_MS, EVENTS, SUMMARY_CHARS, type AgentNotifyConfig, type NotifyEvent } from "./config/schema.js";
 import { sendNow } from "./notify/index.js";
-import { cancel, enqueue, pending, sendDue, sweepDue, wake, type PendingNotification } from "./notify/scheduler.js";
-import { CLAUDE_SETTINGS_PATH, claudeHooksPreview, detectClaude, removeClaudeHooks, writeClaudeHooks } from "./setup/claude.js";
-import { detectOpenCode, openCodePluginContent, openCodeTuiContent, OPENCODE_PLUGIN_ROOT, removeOpenCodePlugin, writeOpenCodePlugin } from "./setup/opencode.js";
-import { detectPi, piExtensionContent, PI_EXTENSION_PATH, removePiExtension, writePiExtension } from "./setup/pi.js";
+import { cancel, enqueue, listPending, pending, sendDue, sweepDue, wake, type PendingNotification } from "./notify/scheduler.js";
+import { CLAUDE_SETTINGS_PATH, claudeHooksPreview, claudeHooksStatus, detectClaude, removeClaudeHooks, writeClaudeHooks } from "./setup/claude.js";
+import { detectOpenCode, openCodePluginContent, openCodePluginStatus, openCodeTuiContent, OPENCODE_PLUGIN_ROOT, removeOpenCodePlugin, writeOpenCodePlugin } from "./setup/opencode.js";
+import { detectPi, piExtensionContent, piExtensionStatus, PI_EXTENSION_PATH, removePiExtension, writePiExtension } from "./setup/pi.js";
 import { appendLog } from "./util/log.js";
 import { redact } from "./util/redact.js";
 import { readStdinJson } from "./util/stdin.js";
 
 const HELP = `an / agent-notify — unified agent notifications
 
-Usage:
-  an --event <stop|notification|error|settled> [--delay <sec>] [--session <id>]
-     [--message <text>] [--agent <name>] [--stdin-json]
-  an --cancel [--session <id>]
+发送
+  an notify <stop|settled|notification|error> [--delay <sec>] [--session <id>]
+     [--message <text>] [--agent <name>] [--icon <url>] [--stdin-json]
+  an cancel [--session <id>]
   an flush
-  an test
+
+管理
+  an setup [--dry-run] [--yes]
+  an uninstall
   an key <bark-key>
-  an setup [--dry-run] [--uninstall] [--yes]
+
+诊断
+  an test
+  an status
+  an doctor
 
 Config: ${configPath} (bark endpoint + {env:BARK_DEVICE_KEY})`;
 
@@ -56,19 +64,15 @@ async function run(): Promise<number> {
     allowPositionals: true,
     strict: false,
     options: {
-      event: { type: "string" },
       message: { type: "string" },
       icon: { type: "string" },
       delay: { type: "string" },
       session: { type: "string" },
       agent: { type: "string" },
-      "device-key": { type: "string" },
       "stdin-json": { type: "boolean" },
-      cancel: { type: "boolean" },
       quiet: { type: "boolean" },
       verbose: { type: "boolean" },
       "dry-run": { type: "boolean" },
-      uninstall: { type: "boolean" },
       yes: { type: "boolean" },
       help: { type: "boolean" },
     },
@@ -76,7 +80,7 @@ async function run(): Promise<number> {
 
   const cmd = positionals[0];
 
-  if (cmd === "__wake") {
+  if (cmd === "_wake") {
     const { config } = loadConfig();
     await wake(positionals[1] ?? "default", config);
     return 0;
@@ -84,66 +88,78 @@ async function run(): Promise<number> {
 
   const { config, warnings } = loadConfig();
 
-  if (values.help || (!cmd && !values.event && !values.cancel)) {
+  if (values.help || !cmd) {
     console.log(HELP);
     return 0;
   }
-  if (cmd === "flush") {
-    await sendDue(config, 0);
-    return 0;
-  }
-  if (cmd === "test") return testCommand(config, warnings);
-  if (cmd === "statusline") return statuslineCommand(config);
-  if (cmd === "key") return keyCommand(str(values["device-key"]) ?? positionals[1]);
-  if (cmd === "setup") {
-    return setupCommand(
-      Boolean(values["dry-run"]),
-      Boolean(values.uninstall),
-      Boolean(values.yes),
-    );
-  }
 
-  if (values.cancel) {
-    const stdin = values["stdin-json"]
-      ? ((await readStdinJson(1000)) as Record<string, any> | undefined)
-      : undefined;
-    const session =
-      str(values.session) ??
-      (typeof stdin?.session_id === "string" ? stdin.session_id : undefined) ??
-      (values["stdin-json"] ? undefined : "default");
-    if (!session) {
-      appendLog("level=warn msg=\"cancel without session\"");
+  switch (cmd) {
+    case "notify":
+      return notifyCommand(positionals[1], values, config);
+    case "cancel":
+      return cancelCommand(values, config);
+    case "flush":
+      await sendDue(config, 0);
       return 0;
-    }
-    cancel(config, session);
-    const prompt = typeof stdin?.prompt === "string" ? stdin.prompt.trim() : "";
-    if (/^\/ack(?:\s|$)/.test(prompt)) {
-      // UserPromptSubmit hook：拦下 /ack，别让 Claude 再生成一轮回复
-      console.log(JSON.stringify({ decision: "block", reason: "已取消待发通知" }));
-    }
-    return 0;
+    case "test":
+      return testCommand(config, warnings);
+    case "status":
+      return statusCommand(config, warnings);
+    case "doctor":
+      return doctorCommand(config, warnings);
+    case "_statusline":
+      return statuslineCommand(config);
+    case "key":
+      return keyCommand(positionals[1]);
+    case "setup":
+      return setupCommand(Boolean(values["dry-run"]), Boolean(values.yes), config);
+    case "uninstall":
+      return uninstallCommand();
+    default:
+      // 未知命令（例如升级后仍装在 Agent 里的旧 hook）只提示，绝不打断 Agent。
+      console.error(`未知命令：${cmd}；agent-notify --help`);
+      return 0;
   }
-
-  // 取消要先于 sweep：/ack 不应该先把刚好到点的通知发出去。
-  sweepDue(config);
-
-  if (typeof values.event === "string") {
-    return eventCommand(values, config);
-  }
-
-  console.log(HELP);
-  return 0;
 }
 
-async function eventCommand(
+/** 取消不 sweep：/ack 不应该先把刚好到点的通知发出去。 */
+async function cancelCommand(
   values: Record<string, string | boolean | undefined>,
   config: AgentNotifyConfig,
 ): Promise<number> {
-  const event = values.event as NotifyEvent;
-  if (!EVENTS.includes(event)) {
-    appendLog(`level=error msg="unknown event" event="${String(values.event)}"`);
+  const stdin = values["stdin-json"]
+    ? ((await readStdinJson(1000)) as Record<string, any> | undefined)
+    : undefined;
+  const session =
+    str(values.session) ??
+    (typeof stdin?.session_id === "string" ? stdin.session_id : undefined) ??
+    (values["stdin-json"] ? undefined : "default");
+  if (!session) {
+    appendLog("level=warn msg=\"cancel without session\"");
     return 0;
   }
+  cancel(config, session);
+  const prompt = typeof stdin?.prompt === "string" ? stdin.prompt.trim() : "";
+  if (/^\/ack(?:\s|$)/.test(prompt)) {
+    // UserPromptSubmit hook：拦下 /ack，别让 Claude 再生成一轮回复
+    console.log(JSON.stringify({ decision: "block", reason: "已取消待发通知" }));
+  }
+  return 0;
+}
+
+async function notifyCommand(
+  name: string | undefined,
+  values: Record<string, string | boolean | undefined>,
+  config: AgentNotifyConfig,
+): Promise<number> {
+  const event = name as NotifyEvent;
+  if (!name || !EVENTS.includes(event)) {
+    appendLog(`level=error msg="unknown event" event="${String(name)}"`);
+    console.error(`未知事件：${name ?? "(空)"}；可用：${EVENTS.join(" / ")}`);
+    return 0;
+  }
+
+  sweepDue(config);
 
   const stdin = values["stdin-json"]
     ? ((await readStdinJson()) as Record<string, any> | undefined)
@@ -190,6 +206,61 @@ function mmss(ms: number): string {
   return `${String(Math.floor(total / 60)).padStart(2, "0")}:${String(total % 60).padStart(2, "0")}`;
 }
 
+function statusCommand(config: AgentNotifyConfig, warnings: string[]): number {
+  for (const w of warnings) console.log(`警告：${w}`);
+  console.log(`配置：${configPath}`);
+  console.log(`Bark：${config.bark.enabled ? "启用" : "停用"}，key ${config.bark.deviceKey ? maskKey(config.bark.deviceKey) : "未配置"}`);
+  const recs = listPending(config);
+  if (recs.length === 0) {
+    console.log("待发：0 条");
+    return 0;
+  }
+  console.log(`待发：${recs.length} 条`);
+  for (const rec of recs) {
+    const left = rec.dueAt - Date.now();
+    const when = left > 0 ? `${clock(rec.dueAt)}（${mmss(left)} 后）` : `${clock(rec.dueAt)}（已到点，等 flush）`;
+    const text = rec.message ? rec.message.replace(/\s+/g, " ").slice(0, 40) : "";
+    console.log(`  ${rec.session}  ${rec.event}  ${when}${text ? `  ${text}` : ""}`);
+  }
+  return 0;
+}
+
+function doctorCommand(config: AgentNotifyConfig, warnings: string[]): number {
+  let bad = false;
+  for (const w of warnings) console.log(`警告：${w}`);
+
+  const row = (label: string, text: string, ok = true) => {
+    if (!ok) bad = true;
+    console.log(`${label.padEnd(12)} ${text}`);
+  };
+
+  row("配置", configPath, true);
+  row(
+    "Bark",
+    config.bark.enabled
+      ? config.bark.deviceKey ? `已配置 ${maskKey(config.bark.deviceKey)}` : "未配置 key（an key <key>）"
+      : "已停用（config.bark.enabled = false）",
+    config.bark.enabled ? Boolean(config.bark.deviceKey) : true,
+  );
+  row("Node", process.execPath, existsSync(process.execPath));
+  row("CLI", fileURLToPath(import.meta.url), existsSync(fileURLToPath(import.meta.url)));
+
+  const agentRow = (name: string, detected: string | undefined, status: string) => {
+    if (!detected) return row(name, "未检测到");
+    if (status === "current") return row(name, `已接入，最新（${detected}）`);
+    if (status === "invalid") return row(name, `已接入，但 settings.json 解析失败`, false);
+    if (status === "outdated") return row(name, `已接入，但写入的是旧版本（运行 an setup 更新）`);
+    return row(name, `检测到 ${detected}，但未接入（运行 an setup）`);
+  };
+  agentRow("Claude Code", detectClaude(), claudeHooksStatus());
+  agentRow("Pi", detectPi(), piExtensionStatus());
+  agentRow("OpenCode", detectOpenCode(), openCodePluginStatus());
+
+  if (bad) return 1;
+  console.log(config.bark.enabled ? "\n一切正常；an test 可验证推送。" : "\n一切正常（Bark 已停用，an test 会失败）。");
+  return 0;
+}
+
 async function statuslineCommand(config: AgentNotifyConfig): Promise<number> {
   const stdin = (await readStdinJson()) as Record<string, any> | undefined;
   const session = typeof stdin?.session_id === "string" ? stdin.session_id : "";
@@ -201,7 +272,13 @@ async function statuslineCommand(config: AgentNotifyConfig): Promise<number> {
   return 0;
 }
 
-async function keyCommand(key: string | undefined): Promise<number> {
+/** 输出里只显示 key 头尾，避免整串进日志/截图。 */
+function maskKey(key: string): string {
+  return key.length <= 8 ? `${key.slice(0, 1)}…` : `${key.slice(0, 4)}…${key.slice(-3)}`;
+}
+
+async function keyCommand(raw: string | undefined): Promise<number> {
+  const key = raw ? parseBarkKeyInput(raw) : "";
   if (!key) {
     console.log("用法：agent-notify key <你的 Bark key>");
     return 1;
@@ -213,12 +290,11 @@ async function keyCommand(key: string | undefined): Promise<number> {
     return 1;
   }
   const { config } = loadConfig();
-  if (config.bark.deviceKey !== key.trim()) {
+  if (config.bark.deviceKey !== key) {
     console.log("错误：写入后校验失败，请检查 " + configPath);
     return 1;
   }
-  const k = key.trim();
-  console.log(`已写入 ${configPath}（key: ${k.slice(0, 4)}…${k.slice(-3)}）`);
+  console.log(`已写入 ${configPath}（key: ${maskKey(key)}）`);
   console.log("重启、关机再开机都生效，不依赖任何终端的环境变量。");
   return 0;
 }
@@ -247,22 +323,31 @@ async function testCommand(config: AgentNotifyConfig, warnings: string[]): Promi
   }
 }
 
-async function setupCommand(dryRun: boolean, uninstall: boolean, yes: boolean): Promise<number> {
+/** 交互式收集 Bark key；非 TTY（脚本 / CI）直接跳过，不阻塞。 */
+async function promptBarkKey(): Promise<string | undefined> {
+  if (!process.stdin.isTTY) return undefined;
+  const rl = createInterface({ input: process.stdin, output: process.stdout });
+  const answer = await rl.question("\n请粘贴 Bark key（Bark App 首页那一串，直接回车跳过）: ");
+  rl.close();
+  return parseBarkKeyInput(answer) || undefined;
+}
+
+function uninstallCommand(): number {
+  const claudeResult = removeClaudeHooks();
+  console.log(claudeResult === "removed"
+    ? `已移除 Claude Code hooks、状态栏和 /ack（${CLAUDE_SETTINGS_PATH}）`
+    : claudeResult === "invalid"
+      ? `Claude Code: ${CLAUDE_SETTINGS_PATH} 解析失败，未修改`
+      : "未找到本工具生成的 Claude hooks/状态栏");
+  console.log(removePiExtension() ? `已移除 ${PI_EXTENSION_PATH}` : "未找到本工具生成的 Pi 扩展");
+  console.log(removeOpenCodePlugin() ? `已移除 ${OPENCODE_PLUGIN_ROOT}` : "未找到本工具生成的 OpenCode 插件");
+  return 0;
+}
+
+async function setupCommand(dryRun: boolean, yes: boolean, config: AgentNotifyConfig): Promise<number> {
   const claude = detectClaude();
   const pi = detectPi();
   const opencode = detectOpenCode();
-
-  if (uninstall) {
-    const claudeResult = removeClaudeHooks();
-    console.log(claudeResult === "removed"
-      ? `已移除 Claude Code hooks、状态栏和 /ack（${CLAUDE_SETTINGS_PATH}）`
-      : claudeResult === "invalid"
-        ? `Claude Code: ${CLAUDE_SETTINGS_PATH} 解析失败，未修改`
-        : "未找到本工具生成的 Claude hooks/状态栏");
-    console.log(removePiExtension() ? `已移除 ${PI_EXTENSION_PATH}` : "未找到本工具生成的 Pi 扩展");
-    console.log(removeOpenCodePlugin() ? `已移除 ${OPENCODE_PLUGIN_ROOT}` : "未找到本工具生成的 OpenCode 插件");
-    return 0;
-  }
 
   console.log("正在检测本机 Agent...\n");
   console.log(claude ? `  [1] Claude Code (${claude})` : "  （未检测到 Claude Code）");
@@ -274,7 +359,10 @@ async function setupCommand(dryRun: boolean, uninstall: boolean, yes: boolean): 
   if (claude) console.log(`  • Claude Code: 写入 ${CLAUDE_SETTINGS_PATH}（hooks + 状态栏 + /ack）`);
   if (pi) console.log(`  • Pi: 写入 ${PI_EXTENSION_PATH}`);
   if (opencode) console.log(`  • OpenCode: 写入 ${OPENCODE_PLUGIN_ROOT}（服务端 index.ts + TUI tui.tsx）`);
-  console.log(`  • 配置: ${configPath}${dryRun ? "（dry-run，不写入）" : ensureConfigFile() ? "（已创建默认配置）" : "（已存在，不修改）"}`);
+  const created = dryRun ? false : ensureConfigFile();
+  console.log(`  • 配置: ${configPath}${dryRun ? "（dry-run，不写入）" : created ? "（已创建默认配置）" : "（已存在，不修改）"}`);
+  // 默认配置带 {env:BARK_DEVICE_KEY}，必须重新加载才能看到环境变量提供的 key。
+  if (created) config = loadConfig().config;
   console.log(`\n通知默认延迟：stop/settled ${DEFAULT_DELAY_MS.stop / 60_000} 分钟，error/notification 立即（可在配置 delayMs 调整）`);
 
   if (dryRun) {
@@ -312,8 +400,23 @@ async function setupCommand(dryRun: boolean, uninstall: boolean, yes: boolean): 
   }
   if (pi) console.log(`\n${writePiExtension() === "written" ? "已写入" : "已是最新"} Pi 扩展`);
   if (opencode) console.log(`${writeOpenCodePlugin() === "written" ? "已写入" : "已是最新"} OpenCode 插件`);
-  console.log("\n下一步：写入 Bark 凭据（持久化，重启后仍生效）");
-  console.log("  agent-notify key <你的BarkKey>");
+  console.log("\n配置 Bark 凭据（持久化，重启后仍生效）");
+  if (config.bark.deviceKey) {
+    console.log(`  已配置：${maskKey(config.bark.deviceKey)}（更换：agent-notify key <你的BarkKey>）`);
+  } else {
+    const pasted = await promptBarkKey();
+    if (!pasted) {
+      console.log("  未写入 Bark key。稍后运行 agent-notify key <你的BarkKey>");
+    } else {
+      try {
+        saveDeviceKey(pasted);
+        console.log(`  已写入 ${configPath}（key: ${maskKey(pasted)}）`);
+      } catch (err) {
+        console.log(`  写入失败：${err instanceof Error ? err.message : String(err)}`);
+        console.log("  请手动运行 agent-notify key <你的BarkKey>");
+      }
+    }
+  }
   console.log("  然后 agent-notify test");
   if (claude) console.log("\nClaude Code 新会话自动加载 hooks；当前会话可重启或输入 /hooks 检查。状态栏显示待发时间，输入 /ack 取消。");
   if (pi) console.log("Pi 正在运行时执行 /reload 以加载扩展。");

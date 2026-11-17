@@ -40,7 +40,7 @@ function lockPath(stateDir: string, session: string): string {
 export function enqueue(rec: PendingNotification, cfg: AgentNotifyConfig): void {
   mkdirSync(pendingDir(cfg.stateDir), { recursive: true, mode: 0o700 });
   atomicWriteText(recordPath(cfg.stateDir, rec.session), JSON.stringify(rec));
-  spawnSelf(["__wake", keyOf(rec.session)]);
+  spawnSelf(["_wake", keyOf(rec.session)]);
 }
 
 export function cancel(cfg: AgentNotifyConfig, session: string): void {
@@ -55,6 +55,19 @@ export function cancel(cfg: AgentNotifyConfig, session: string): void {
 /** 只读待发记录，给状态栏/诊断用；不认领、不删除。 */
 export function pending(cfg: AgentNotifyConfig, session: string): PendingNotification | undefined {
   return readJson<PendingNotification>(recordPath(cfg.stateDir, session));
+}
+
+/** 所有会话的待发记录（只读），按到期时间排序。 */
+export function listPending(cfg: AgentNotifyConfig): PendingNotification[] {
+  const dir = pendingDir(cfg.stateDir);
+  if (!existsSync(dir)) return [];
+  const recs: PendingNotification[] = [];
+  for (const file of readdirSync(dir)) {
+    if (!file.endsWith(".json")) continue;
+    const rec = readJson<PendingNotification>(path.join(dir, file));
+    if (rec) recs.push(rec);
+  }
+  return recs.sort((a, b) => a.dueAt - b.dueAt);
 }
 
 function claim(session: string, stateDir: string): boolean {
