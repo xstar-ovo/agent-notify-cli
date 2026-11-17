@@ -28,6 +28,9 @@ const NODE_PATH = process.env.AGENT_NOTIFY_NODE || (() => {
 const STATUSLINE_MARKER = "由 agent-notify setup 生成，请勿手改";
 const ACK_MARKER = "由 agent-notify setup 生成，请勿手改";
 
+/** 通知图标（Bark 用）。 */
+const ICON = "https://img.cdn1.vip/i/6afc6a1c7dec3_1794927132.png";
+
 interface HookSpec {
   event: "Stop" | "Notification" | "UserPromptSubmit";
   args: string[];
@@ -36,11 +39,11 @@ interface HookSpec {
 }
 
 const SPECS: HookSpec[] = [
-  { event: "Stop", args: ["notify", "stop", "--stdin-json"], timeout: 10 },
+  { event: "Stop", args: ["notify", "stop", "--stdin-json", "--icon", ICON], timeout: 10 },
   {
     event: "Notification",
     matcher: "permission_prompt",
-    args: ["notify", "notification", "--stdin-json"],
+    args: ["notify", "notification", "--stdin-json", "--icon", ICON],
     timeout: 10,
   },
   { event: "UserPromptSubmit", args: ["cancel", "--stdin-json"], timeout: 5 },

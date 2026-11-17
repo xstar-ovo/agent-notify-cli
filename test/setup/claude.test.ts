@@ -81,7 +81,7 @@ test("merge keeps user settings and existing hooks, and is idempotent", () => {
 });
 
 test("merge refreshes our hook command when node or repo path changes", () => {
-  const oldCommand = '"old-node" "old-cli" --agent claude notify stop --stdin-json';
+  const oldCommand = '"old-node" "old/dist/cli.js" --agent claude notify stop --stdin-json';
   const merged = mergeClaudeHooks({
     hooks: { Stop: [{ hooks: [{ type: "command", command: oldCommand, timeout: 30 }] }] },
   });
@@ -91,7 +91,7 @@ test("merge refreshes our hook command when node or repo path changes", () => {
   assert.match(commands[0], /cli\.js/);
   assert.equal(merged.hooks.Stop[0].hooks[0].timeout, 10);
 
-  const oldNotification = '"old-node" "old-cli" --agent claude notify notification --stdin-json';
+  const oldNotification = '"old-node" "old/dist/cli.js" --agent claude notify notification --stdin-json';
   const withMatcher = mergeClaudeHooks({
     hooks: { Notification: [{ hooks: [{ type: "command", command: oldNotification }] }] },
   });
