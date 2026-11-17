@@ -44,7 +44,17 @@ export function enqueue(rec: PendingNotification, cfg: AgentNotifyConfig): void 
 }
 
 export function cancel(cfg: AgentNotifyConfig, session: string): void {
-  cleanup(cfg.stateDir, session);
+  // 只删记录，不删别人正在持有的锁；否则并发的 sendDue 会重新认领旧记录。
+  try {
+    rmSync(recordPath(cfg.stateDir, session), { force: true });
+  } catch {
+    /* 忽略 */
+  }
+}
+
+/** 只读待发记录，给状态栏/诊断用；不认领、不删除。 */
+export function pending(cfg: AgentNotifyConfig, session: string): PendingNotification | undefined {
+  return readJson<PendingNotification>(recordPath(cfg.stateDir, session));
 }
 
 function claim(session: string, stateDir: string): boolean {
@@ -63,6 +73,14 @@ function claim(session: string, stateDir: string): boolean {
       /* 锁刚好被别人删掉了，当作竞争失败处理 */
     }
     return false;
+  }
+}
+
+function removeLock(stateDir: string, session: string): void {
+  try {
+    rmSync(lockPath(stateDir, session), { force: true });
+  } catch {
+    /* 忽略 */
   }
 }
 
@@ -112,7 +130,12 @@ export async function sendDue(
     const claimed: PendingNotification[] = [];
     for (const rec of recs) {
       if (!claim(rec.session, cfg.stateDir)) continue;
-      claimed.push(readJson<PendingNotification>(recordPath(cfg.stateDir, rec.session)) ?? rec);
+      const current = readJson<PendingNotification>(recordPath(cfg.stateDir, rec.session));
+      if (!current) {
+        removeLock(cfg.stateDir, rec.session); // 认领后被 cancel 删除，不能发旧副本
+        continue;
+      }
+      claimed.push(current);
     }
     if (claimed.length === 0) continue;
     const merged = claimed.length === 1 ? claimed[0]! : mergeAggregate(claimed);

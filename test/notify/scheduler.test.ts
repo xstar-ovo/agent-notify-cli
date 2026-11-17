@@ -8,7 +8,7 @@ import { existsSync, mkdtempSync, readdirSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { normalize } from "../../src/config/schema.js";
-import { enqueue, recordPath, sendDue, wake, type PendingNotification } from "../../src/notify/scheduler.js";
+import { cancel, enqueue, recordPath, sendDue, wake, type PendingNotification } from "../../src/notify/scheduler.js";
 import type { NotifyRecord } from "../../src/notify/templates.js";
 
 function cfgFor(dir: string) {
@@ -81,6 +81,18 @@ test("wake sends immediately when already due", async () => {
   enqueue(rec("w", Date.now() - 1), cfg);
   await wake("w", cfg);
   assert.equal(existsSync(recordPath(dir, "w")), false);
+});
+
+test("cancel removes the record but leaves a sender's lock in place", () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), "an-"));
+  const cfg = cfgFor(dir);
+  enqueue(rec("cancelled", Date.now() + 60_000), cfg);
+  const lock = path.join(dir, "pending", "cancelled.lock");
+  writeFileSync(lock, "");
+
+  cancel(cfg, "cancelled");
+  assert.equal(existsSync(recordPath(dir, "cancelled")), false);
+  assert.equal(existsSync(lock), true, "不能删掉别的 sender 持有的锁");
 });
 
 test("a fresh lock blocks claiming (no duplicate send)", async () => {
