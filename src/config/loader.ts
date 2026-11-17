@@ -47,6 +47,15 @@ export function ensureConfigFile(): boolean {
 }
 
 /**
+ * 把用户粘贴的内容归一成 Bark key：可能是整条 URL、带引号，或前后带空白。
+ */
+export function parseBarkKeyInput(input: string): string {
+  const t = input.trim().replace(/^["']+|["']+$/g, "").trim();
+  const m = /^https?:\/\/[^/\s]+\/([^/?#\s]+)/.exec(t);
+  return m ? m[1]! : t;
+}
+
+/**
  * 把 Bark key 写进配置文件，重启、换终端后依然有效。
  * 配置文件无法解析时直接报错，绝不覆盖（避免静默丢数据）。
  */

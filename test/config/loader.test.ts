@@ -7,7 +7,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { saveDeviceKey } from "../../src/config/loader.js";
+import { parseBarkKeyInput, saveDeviceKey } from "../../src/config/loader.js";
 import { testBarkKey } from "../helpers/env.js";
 
 const tmp = () => path.join(mkdtempSync(path.join(os.tmpdir(), "an-cfg-")), "config.json");
@@ -43,4 +43,12 @@ test("rejects empty or whitespace keys", () => {
   const file = tmp();
   assert.throws(() => saveDeviceKey("   ", file), /不能为空/);
   assert.throws(() => saveDeviceKey("a b", file), /不能为空/);
+});
+
+test("setup 粘贴输入：去掉空白/引号，整条 Bark URL 取路径里的 key", () => {
+  assert.equal(parseBarkKeyInput("  abc123XYZ  "), "abc123XYZ");
+  assert.equal(parseBarkKeyInput('"abc123XYZ"'), "abc123XYZ");
+  assert.equal(parseBarkKeyInput("https://api.day.app/abc123XYZ"), "abc123XYZ");
+  assert.equal(parseBarkKeyInput("https://bark.example.com:8080/abc123XYZ/"), "abc123XYZ");
+  assert.equal(parseBarkKeyInput("   "), "");
 });
