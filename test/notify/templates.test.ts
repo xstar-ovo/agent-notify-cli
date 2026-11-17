@@ -40,3 +40,22 @@ test("firstSentence keeps the period and drops trailing sentences", () => {
   assert.equal(firstSentence("第一句。第二句。", 200), "第一句。");
   assert.equal(firstSentence("Done. Tests pass.", 200), "Done.");
 });
+
+test("firstSentence cuts at ellipsis, colons and closing quotes", () => {
+  assert.equal(firstSentence("稍等…我看看后面", 200), "稍等…");
+  assert.equal(firstSentence("稍等……我看看", 200), "稍等……");
+  assert.equal(firstSentence("Done... Tests pass.", 200), "Done...");
+  assert.equal(firstSentence("他说：“好。”然后走了", 200), "他说：“好。”");
+  assert.equal(firstSentence("结果如下：后面还有", 200), "结果如下：");
+  assert.equal(firstSentence("error: ENOENT", 200), "error:");
+  // 半角冒号 / 句号后面不是空白时不截，避免切断路径、URL、版本号。
+  assert.equal(firstSentence("路径 C:\\Users\\me", 200), "路径 C:\\Users\\me");
+  assert.equal(firstSentence("见 http://a.b/c", 200), "见 http://a.b/c");
+});
+
+test("firstSentence strips markdown heading markers", () => {
+  assert.equal(firstSentence("## 结论\n细节很多", 200), "结论");
+  assert.equal(firstSentence("# 标题", 200), "标题");
+  // 正文中间的 #（如 issue 号）不当边界。
+  assert.equal(firstSentence("修复了 #123 的问题。", 200), "修复了 #123 的问题。");
+});
