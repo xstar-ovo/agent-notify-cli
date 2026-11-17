@@ -69,8 +69,8 @@ function notify(args: string[]) {
 function cancelAll() {
   clearCountdown();
   // 完成通知和“等你操作”通知是两个 key，一起撤销
-  notify(["--cancel", "--session", KEY]);
-  notify(["--cancel", "--session", \`\${KEY}:wait\`]);
+  notify(["cancel", "--session", KEY]);
+  notify(["cancel", "--session", \`\${KEY}:wait\`]);
 }
 
 function fmt(ms: number): string {
@@ -149,9 +149,9 @@ export default function (pi: any) {
     clearCountdown(); // 这一条立即发，没有倒计时
     if (Date.now() - lastWaitAt < ${WAIT_REMINDER_MS}) return; // 连弹几个确认框只提醒一次
     lastWaitAt = Date.now();
-    notify(["--event", "notification", "--session", \`\${KEY}:wait\`, "--icon", ICON]);
+    notify(["notify", "notification", "--session", \`\${KEY}:wait\`, "--icon", ICON]);
   });
-  pi.on("ui_prompt_end", () => notify(["--cancel", "--session", \`\${KEY}:wait\`]));
+  pi.on("ui_prompt_end", () => notify(["cancel", "--session", \`\${KEY}:wait\`]));
   // 本轮最后一条回复的前 50 字，作为推送正文的摘要
   pi.on("agent_end", (event: any, ctx: any) => {
     adopt(ctx);
@@ -174,7 +174,7 @@ export default function (pi: any) {
     const span = startedAt ? fmt(Date.now() - startedAt) : "";
     const message = [span && \`用时 \${span}\`, summary].filter(Boolean).join(" · ");
     // 标题由事件决定（任务完成 / 任务出错），不用任务名覆盖
-    const args = ["--event", failed ? "error" : "settled", "--session", KEY, "--icon", ICON];
+    const args = ["notify", failed ? "error" : "settled", "--session", KEY, "--icon", ICON];
     if (message) args.push("--message", message);
     notify(args);
     const delay = delayFor(failed ? "error" : "settled");
@@ -197,6 +197,18 @@ export function detectPi(): string | undefined {
 
 export function piExtensionContent(): string {
   return PI_TEMPLATE;
+}
+
+/** 扩展文件是否为本工具生成的当前版本，供 doctor 用。 */
+export function piExtensionStatus(): "current" | "outdated" | "missing" {
+  if (!existsSync(PI_EXTENSION_PATH)) return "missing";
+  try {
+    const text = readFileSync(PI_EXTENSION_PATH, "utf8");
+    if (!text.includes(MARKER)) return "missing";
+    return text === PI_TEMPLATE ? "current" : "outdated";
+  } catch {
+    return "missing";
+  }
 }
 
 export function writePiExtension(): "written" | "unchanged" {

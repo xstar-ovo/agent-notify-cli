@@ -77,12 +77,12 @@ function key(id: string): string {
 }
 
 function cancel(id: string, cwd: string) {
-  notify(["--cancel", "--session", key(id)], cwd);
+  notify(["cancel", "--session", key(id)], cwd);
   cancelWait(id, cwd);
 }
 
 function cancelWait(id: string, cwd: string) {
-  notify(["--cancel", "--session", \`\${key(id)}:wait\`], cwd);
+  notify(["cancel", "--session", \`\${key(id)}:wait\`], cwd);
 }
 
 function fmt(ms: number): string {
@@ -94,7 +94,7 @@ function waitFor(id: string, cwd: string, message?: string) {
   const last = waitAt.get(id) ?? 0;
   if (Date.now() - last < ${WAIT_REMINDER_MS}) return; // 连弹几个确认框只提醒一次
   waitAt.set(id, Date.now());
-  const args = ["--event", "notification", "--session", \`\${key(id)}:wait\`, "--icon", ICON];
+  const args = ["notify", "notification", "--session", \`\${key(id)}:wait\`, "--icon", ICON];
   if (message) args.push("--message", message);
   notify(args, cwd);
 }
@@ -152,7 +152,7 @@ function handle(event: any, base: string) {
       const span = state?.startedAt ? fmt(Date.now() - state.startedAt) : "";
       const message = [span && \`用时 \${span}\`, state?.summary].filter(Boolean).join(" · ");
       cancelWait(id, cwd);
-      const args = ["--event", "settled", "--session", session, "--icon", ICON];
+      const args = ["notify", "settled", "--session", session, "--icon", ICON];
       if (message) args.push("--message", message);
       notify(args, cwd);
       states.delete(id);
@@ -161,7 +161,7 @@ function handle(event: any, base: string) {
     }
     case "session.execution.failed": {
       cancelWait(id, cwd);
-      notify(["--event", "error", "--session", session, "--icon", ICON], cwd);
+      notify(["notify", "error", "--session", session, "--icon", ICON], cwd);
       states.delete(id);
       waitAt.delete(id);
       return;
@@ -179,7 +179,7 @@ function handle(event: any, base: string) {
     case "form.replied":
     case "form.cancelled":
       waitAt.delete(id);
-      notify(["--cancel", "--session", \`\${session}:wait\`], cwd);
+      notify(["cancel", "--session", \`\${session}:wait\`], cwd);
       return;
   }
 }
@@ -283,7 +283,7 @@ function mmss(ms: number): string {
 function cancel(id: string) {
   if (!existsSync(CLI)) return report(\`找不到 \${CLI}，请重新运行 agent-notify setup\`);
   for (const session of [\`oc:\${id}\`, \`oc:\${id}:wait\`]) {
-    const child = spawn(NODE, [CLI, "--cancel", "--session", session], {
+    const child = spawn(NODE, [CLI, "cancel", "--session", session], {
       detached: true,
       stdio: "ignore",
       windowsHide: true,
@@ -429,6 +429,25 @@ export function openCodePluginContent(): string {
 
 export function openCodeTuiContent(): string {
   return OPENCODE_TUI_TEMPLATE;
+}
+
+/** 插件文件是否为本工具生成的当前版本，供 doctor 用。 */
+export function openCodePluginStatus(): "current" | "outdated" | "missing" {
+  let state: "current" | "outdated" = "current";
+  for (const [file, content] of [
+    [OPENCODE_PLUGIN_PATH, OPENCODE_TEMPLATE],
+    [OPENCODE_TUI_PATH, OPENCODE_TUI_TEMPLATE],
+  ]) {
+    if (!existsSync(file)) return "missing";
+    try {
+      const text = readFileSync(file, "utf8");
+      if (!text.includes(MARKER)) return "missing";
+      if (text !== content) state = "outdated";
+    } catch {
+      return "missing";
+    }
+  }
+  return state;
 }
 
 function removeMarked(file: string): boolean {

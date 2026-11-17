@@ -4,7 +4,7 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { CLAUDE_STATUSLINE_PATH, claudeAckContent, claudeHooksPreview, claudeStatuslineContent, isOurStatuslineCommand, mergeClaudeHooks, stripClaudeHooks } from "../../src/setup/claude.js";
+import { CLAUDE_STATUSLINE_PATH, claudeAckContent, claudeHooksPreview, claudeHooksStatus, claudeStatuslineContent, isOurStatuslineCommand, mergeClaudeHooks, stripClaudeHooks } from "../../src/setup/claude.js";
 
 function hooksOf(settings: any): any {
   return settings.hooks;
@@ -20,19 +20,37 @@ test("claude hooks cover stop, permission prompt and prompt submit", () => {
   assert.deepEqual(Object.keys(hooksOf(merged)), ["Stop", "Notification", "UserPromptSubmit"]);
 
   assert.equal(commandsOf(merged, "Stop").length, 1);
-  assert.match(commandsOf(merged, "Stop")[0], /--agent claude --event stop --stdin-json/);
+  assert.match(commandsOf(merged, "Stop")[0], /--agent claude notify stop --stdin-json/);
   assert.equal(hooksOf(merged).Notification[0].matcher, "permission_prompt");
-  assert.match(commandsOf(merged, "Notification")[0], /--event notification/);
-  assert.match(commandsOf(merged, "UserPromptSubmit")[0], /--cancel --stdin-json/);
+  assert.match(commandsOf(merged, "Notification")[0], /notify notification/);
+  assert.match(commandsOf(merged, "UserPromptSubmit")[0], /--agent claude cancel --stdin-json/);
 });
 
-test("merge removes the legacy SessionEnd cancel hook", () => {
+test("merge drops hooks written with the old CLI syntax", () => {
   const merged = mergeClaudeHooks({
     hooks: {
       SessionEnd: [{ hooks: [{ type: "command", command: '"node" "cli.js" --agent claude --cancel --stdin-json' }] }],
     },
   });
   assert.equal(merged.hooks.SessionEnd, undefined);
+});
+
+test("merge keeps hooks that are not ours", () => {
+  const custom = 'agent-notify --agent claude notify settled --stdin-json';
+  const foreign = 'my-other-tool --agent claude --stdin-json';
+  const merged = mergeClaudeHooks({
+    hooks: { SessionEnd: [{ hooks: [{ type: "command", command: custom }, { type: "command", command: foreign }] }] },
+  });
+  assert.deepEqual(commandsOf(merged, "SessionEnd"), [custom, foreign]);
+  assert.deepEqual(commandsOf(stripClaudeHooks(merged).settings, "SessionEnd"), [custom, foreign]);
+});
+
+test("hooks status tells current from outdated and missing", () => {
+  assert.equal(claudeHooksStatus({}), "missing");
+  assert.equal(claudeHooksStatus(mergeClaudeHooks({})), "current");
+  assert.equal(claudeHooksStatus({
+    hooks: { Stop: [{ hooks: [{ type: "command", command: '"node" "cli.js" --agent claude --event stop --stdin-json' }] }] },
+  }), "outdated");
 });
 
 test("claude hook commands quote node and cli paths", () => {
@@ -63,7 +81,7 @@ test("merge keeps user settings and existing hooks, and is idempotent", () => {
 });
 
 test("merge refreshes our hook command when node or repo path changes", () => {
-  const oldCommand = '"old-node" "old-cli" --agent claude --event stop --stdin-json';
+  const oldCommand = '"old-node" "old-cli" --agent claude notify stop --stdin-json';
   const merged = mergeClaudeHooks({
     hooks: { Stop: [{ hooks: [{ type: "command", command: oldCommand, timeout: 30 }] }] },
   });
@@ -73,7 +91,7 @@ test("merge refreshes our hook command when node or repo path changes", () => {
   assert.match(commands[0], /cli\.js/);
   assert.equal(merged.hooks.Stop[0].hooks[0].timeout, 10);
 
-  const oldNotification = '"old-node" "old-cli" --agent claude --event notification --stdin-json';
+  const oldNotification = '"old-node" "old-cli" --agent claude notify notification --stdin-json';
   const withMatcher = mergeClaudeHooks({
     hooks: { Notification: [{ hooks: [{ type: "command", command: oldNotification }] }] },
   });
@@ -87,12 +105,12 @@ test("strip removes only our hooks and keeps user hooks", () => {
         {
           hooks: [
             { type: "command", command: "echo user-hook" },
-            { type: "command", command: "agent-notify --agent claude --event stop --stdin-json" },
+            { type: "command", command: '"node" "cli.js" --agent claude notify stop --stdin-json' },
           ],
         },
       ],
       Notification: [
-        { matcher: "permission_prompt", hooks: [{ type: "command", command: "agent-notify --agent claude --cancel --stdin-json" }] },
+        { matcher: "permission_prompt", hooks: [{ type: "command", command: '"node" "cli.js" --agent claude --event notification --stdin-json' }] },
         { matcher: "idle_prompt", hooks: [{ type: "command", command: "echo idle" }] },
       ],
     },
@@ -135,7 +153,7 @@ test("claude statusline keeps the original command and appends ours", () => {
   const src = claudeStatuslineContent('bash "old-statusline.sh"');
   assert.match(src, /ORIGINAL/);
   assert.match(src, /bash/);
-  assert.match(src, /"statusline"/);
+  assert.match(src, /"_statusline"/);
   assert.match(src, /spawnSync/);
   assert.match(src, /original\?\.stdout/);
 });
@@ -144,7 +162,7 @@ test("claude /ack is a stub intercepted by the user-prompt hook", () => {
   const src = claudeAckContent();
   assert.match(src, /disable-model-invocation: true/);
   assert.match(src, /取消待发通知/);
-  assert.doesNotMatch(src, /CLAUDE_SESSION_ID|--cancel/);
+  assert.doesNotMatch(src, /CLAUDE_SESSION_ID|--stdin-json/);
 });
 
 test("preview contains hooks but not user settings", () => {

@@ -54,7 +54,7 @@ test("succeeded cancels a pending wait notification before pushing completion", 
   calls.length = 0;
   plugin.handle(event("session.execution.succeeded", { sessionID: "s" }, base), base);
 
-  assert.ok(calls.some((args) => args.includes("oc:s:wait") && args.includes("--cancel")));
+  assert.ok(calls.some((args) => args.includes("oc:s:wait") && args.includes("cancel")));
   assert.ok(calls.some((args) => args.includes("settled")));
   assert.equal(plugin.waitAt.has("s"), false);
 });

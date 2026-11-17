@@ -29,24 +29,21 @@ const STATUSLINE_MARKER = "由 agent-notify setup 生成，请勿手改";
 const ACK_MARKER = "由 agent-notify setup 生成，请勿手改";
 
 interface HookSpec {
-  event: "Stop" | "Notification" | "UserPromptSubmit" | "SessionEnd";
+  event: "Stop" | "Notification" | "UserPromptSubmit";
   args: string[];
   matcher?: string;
   timeout: number;
-  /** 旧版本装过、现在不再写入；合并时移除。 */
-  legacy?: boolean;
 }
 
 const SPECS: HookSpec[] = [
-  { event: "Stop", args: ["--event", "stop", "--stdin-json"], timeout: 10 },
+  { event: "Stop", args: ["notify", "stop", "--stdin-json"], timeout: 10 },
   {
     event: "Notification",
     matcher: "permission_prompt",
-    args: ["--event", "notification", "--stdin-json"],
+    args: ["notify", "notification", "--stdin-json"],
     timeout: 10,
   },
-  { event: "UserPromptSubmit", args: ["--cancel", "--stdin-json"], timeout: 5 },
-  { event: "SessionEnd", args: ["--cancel", "--stdin-json"], timeout: 2, legacy: true },
+  { event: "UserPromptSubmit", args: ["cancel", "--stdin-json"], timeout: 5 },
 ];
 
 type JsonObject = Record<string, any>;
@@ -67,31 +64,39 @@ function signatureFor(spec: HookSpec): string {
   return `--agent claude ${spec.args.join(" ")}`;
 }
 
+/** 本工具的 hook 一定是 `node …/cli.js --agent claude …`；只认 cli.js 入口，不误伤别的工具或用户手写的 bin 调用。 */
 function isOurs(command: unknown): boolean {
-  return typeof command === "string" && SPECS.some((spec) => command.includes(signatureFor(spec)));
+  return typeof command === "string" &&
+    command.includes("--agent claude") && command.includes("--stdin-json") &&
+    /cli\.js\b/.test(command);
 }
 
-function removeSpecHooks(settings: JsonObject, spec: HookSpec): void {
-  const list = settings.hooks[spec.event];
-  if (!Array.isArray(list)) return;
-  let changed = false;
-  const next = [];
-  for (const group of list) {
-    if (!isObject(group) || !Array.isArray(group.hooks)) {
-      next.push(group);
-      continue;
+/** 删掉本工具旧版本写下的 hooks（命令是本工具的但签名已过期）。 */
+function dropStaleHooks(settings: JsonObject): void {
+  const current = SPECS.map((spec) => signatureFor(spec));
+  for (const event of Object.keys(settings.hooks)) {
+    const list = settings.hooks[event];
+    if (!Array.isArray(list)) continue;
+    let changed = false;
+    const next = [];
+    for (const group of list) {
+      if (!isObject(group) || !Array.isArray(group.hooks)) {
+        next.push(group);
+        continue;
+      }
+      const hooks = group.hooks.filter((hook) =>
+        !(isObject(hook) && isOurs(hook.command) &&
+          !current.some((sig) => hook.command.includes(sig))));
+      if (hooks.length === group.hooks.length) next.push(group);
+      else {
+        changed = true;
+        if (hooks.length > 0) next.push({ ...group, hooks });
+      }
     }
-    const kept = group.hooks.filter((hook) =>
-      !(isObject(hook) && typeof hook.command === "string" && hook.command.includes(signatureFor(spec))));
-    if (kept.length === group.hooks.length) next.push(group);
-    else {
-      changed = true;
-      if (kept.length > 0) next.push({ ...group, hooks: kept });
-    }
+    if (!changed) continue;
+    if (next.length > 0) settings.hooks[event] = next;
+    else delete settings.hooks[event];
   }
-  if (!changed) return;
-  if (next.length > 0) settings.hooks[spec.event] = next;
-  else delete settings.hooks[spec.event];
 }
 
 function refreshOurs(group: unknown, spec: HookSpec, command: string): { group: unknown; found: boolean } {
@@ -116,8 +121,8 @@ export function mergeClaudeHooks(settings: unknown): JsonObject {
   if (!isObject(hooks)) throw new Error("settings.json 的 hooks 不是对象");
 
   const next = { ...settings, hooks: { ...hooks } };
-  for (const spec of SPECS.filter((s) => s.legacy)) removeSpecHooks(next, spec);
-  for (const spec of SPECS.filter((s) => !s.legacy)) {
+  dropStaleHooks(next);
+  for (const spec of SPECS) {
     const existing = next.hooks[spec.event];
     if (existing !== undefined && !Array.isArray(existing)) {
       throw new Error(`settings.json 的 hooks.${spec.event} 不是数组`);
@@ -215,7 +220,7 @@ export function claudeStatuslineContent(original?: string): string {
     `let input = "";`,
     `try { input = readFileSync(0, "utf8"); } catch {}`,
     `const original = ORIGINAL ? spawnSync(ORIGINAL, { input, encoding: "utf8", timeout: 5000, windowsHide: true, shell: true }) : null;`,
-    `const ours = spawnSync(${JSON.stringify(NODE_PATH)}, [${JSON.stringify(CLI_PATH)}, "statusline"], { input, encoding: "utf8", timeout: 5000, windowsHide: true });`,
+    `const ours = spawnSync(${JSON.stringify(NODE_PATH)}, [${JSON.stringify(CLI_PATH)}, "_statusline"], { input, encoding: "utf8", timeout: 5000, windowsHide: true });`,
     `const originalText = original?.stdout ?? "";`,
     `const parts = [originalText, ours.status === 0 ? ours.stdout : ""].filter((part) => part && part.trim());`,
     `if (parts.length) process.stdout.write(parts.map((part) => part.trimEnd()).join("  "));`,
@@ -344,6 +349,38 @@ function writeSettings(next: JsonObject): void {
 
 export function detectClaude(): string | undefined {
   return existsSync(CLAUDE_DIR) ? "~/.claude/settings.json" : undefined;
+}
+
+function hookCommands(settings: JsonObject): string[] {
+  const out: string[] = [];
+  const hooks = settings.hooks;
+  if (!isObject(hooks)) return out;
+  for (const list of Object.values(hooks)) {
+    if (!Array.isArray(list)) continue;
+    for (const group of list) {
+      if (!isObject(group) || !Array.isArray(group.hooks)) continue;
+      for (const hook of group.hooks) {
+        if (isObject(hook) && typeof hook.command === "string") out.push(hook.command);
+      }
+    }
+  }
+  return out;
+}
+
+/** hooks 是否为当前签名；旧版本写入的算 outdated，供 doctor 提示重跑 setup。 */
+export function claudeHooksStatus(settings?: unknown): "current" | "outdated" | "missing" | "invalid" {
+  if (settings !== undefined) return statusOf(settings);
+  const current = readSettings();
+  if (current.invalid) return "invalid";
+  return statusOf(current.data ?? {});
+}
+
+function statusOf(settings: unknown): "current" | "outdated" | "missing" {
+  if (!isObject(settings)) return "missing";
+  const commands = hookCommands(settings);
+  // 只比参数签名：换 node 版本 / 安装路径后命令仍能用，不该报 outdated。
+  if (SPECS.every((spec) => commands.some((cmd) => cmd.includes(signatureFor(spec))))) return "current";
+  return commands.some(isOurs) ? "outdated" : "missing";
 }
 
 /** dry-run 只展示将添加的 hooks 和状态栏入口，不展示用户 settings 里的凭据。 */

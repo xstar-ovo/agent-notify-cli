@@ -39,13 +39,13 @@ test("pi extension cancels on user activity and notifies on waiting-for-user", (
   }
   // 完成通知和 :wait 通知是两个 key，取消时都要删
   const body = src.slice(src.indexOf("function cancelAll"), src.indexOf("export default"));
-  assert.ok(body.includes('"--cancel", "--session", KEY'), "cancelAll 取消完成通知");
-  assert.ok(body.includes('"--cancel", "--session", `${KEY}:wait`'), "cancelAll 取消 :wait 通知");
-  // 等用户操作时立即推送，且用独立的 :wait key，避免 --cancel 误删完成通知
+  assert.ok(body.includes('"cancel", "--session", KEY'), "cancelAll 取消完成通知");
+  assert.ok(body.includes('"cancel", "--session", `${KEY}:wait`'), "cancelAll 取消 :wait 通知");
+  // 等用户操作时立即推送，且用独立的 :wait key，避免 cancel 误删完成通知
   const wait = handlerOf(src, "ui_prompt_start");
-  assert.ok(wait.includes('"--event", "notification"'), "等操作时立即推 notification");
+  assert.ok(wait.includes('"notify", "notification"'), "等操作时立即推 notification");
   assert.ok(wait.includes("`${KEY}:wait`"), "等操作通知用独立的 :wait key");
-  assert.match(handlerOf(src, "ui_prompt_end"), /"--cancel", "--session", `\$\{KEY\}:wait`/);
+  assert.match(handlerOf(src, "ui_prompt_end"), /"cancel", "--session", `\$\{KEY\}:wait`/);
 });
 
 test("pi extension throttles repeated waiting-for-user prompts", () => {

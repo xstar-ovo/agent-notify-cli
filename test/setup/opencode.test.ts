@@ -43,9 +43,9 @@ test("opencode plugin maps v2 execution outcomes, not the unused idle events", (
   assert.ok(!src.includes('"session.idle"'), "V2 不发射 session.idle");
   assert.ok(!src.includes('"session.status"'), "V2 不发射 session.status");
   const failed = between(src, 'case "session.execution.failed"', 'case "session.execution.interrupted"');
-  assert.match(failed, /"--event", "error"/);
+  assert.match(failed, /"notify", "error"/);
   assert.match(failed, /cancelWait\(id, cwd\)/, "失败时先撤销还在延迟的等待提醒");
-  assert.match(between(src, 'case "session.execution.succeeded"', 'case "session.execution.failed"'), /"--event", "settled"/);
+  assert.match(between(src, 'case "session.execution.succeeded"', 'case "session.execution.failed"'), /"notify", "settled"/);
   assert.ok(!failed.includes("data.error"), "不把 Provider 错误原文发到手机");
 });
 
@@ -70,7 +70,7 @@ test("opencode plugin waits on permission and forms, then cancels on reply", () 
   assert.match(form, /waitFor\(id, cwd/);
   const replied = between(src, 'case "permission.replied"', "  }\n}");
   assert.ok(replied.includes("`${session}:wait`"), "回答后撤销等待通知");
-  assert.match(replied, /"--cancel"/);
+  assert.match(replied, /"cancel"/);
   assert.match(replied, /waitAt\.delete\(id\)/, "回答后释放节流状态");
   assert.ok(replied.includes('case "form.replied"'), "表单回答也撤销");
   assert.ok(replied.includes('case "form.cancelled"'), "表单取消也撤销");
@@ -127,7 +127,7 @@ test("opencode tui plugin shows the scheduled time at task end", () => {
   assert.match(src, /消息通知时间 \{clock\(due\)\}/);
   assert.match(src, /delayMs/);
   assert.match(src, /draft\.due\[id\] = dueAt/);
-  assert.match(src, /--cancel/);
+  assert.match(src, /"cancel", "--session"/);
   assert.match(src, /ctx\.keymap\.layer/);
   assert.match(src, /slash: \{ name: "ack" \}/);
   assert.match(src, /palette: true/);

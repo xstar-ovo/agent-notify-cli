@@ -39,7 +39,7 @@ test("claude stdin supplies session, message and cancel target", () => {
       hook_event_name: "Stop",
       last_assistant_message: "hello from claude",
     });
-    const result = run(["--event", "stop", "--agent", "claude", "--delay", "5", "--stdin-json"], payload, env);
+    const result = run(["notify", "stop", "--agent", "claude", "--delay", "5", "--stdin-json"], payload, env);
     assert.equal(result.status, 0, result.stderr);
 
     const pending = path.join(state, "pending");
@@ -50,7 +50,7 @@ test("claude stdin supplies session, message and cancel target", () => {
     assert.equal(record.session, "claude-test");
     assert.equal(record.message, "hello from claude");
 
-    const line = run(["statusline"], JSON.stringify({ session_id: "claude-test" }), env);
+    const line = run(["_statusline"], JSON.stringify({ session_id: "claude-test" }), env);
     assert.equal(line.status, 0, line.stderr);
     assert.match(line.stdout, /消息通知时间 \d{2}:\d{2}:\d{2} · \d{2}:\d{2} 后/);
 
@@ -59,14 +59,14 @@ test("claude stdin supplies session, message and cancel target", () => {
       hook_event_name: "UserPromptSubmit",
       prompt: "hello",
     });
-    const cancelled = run(["--cancel", "--agent", "claude", "--stdin-json"], cancel, env);
+    const cancelled = run(["cancel", "--agent", "claude", "--stdin-json"], cancel, env);
     assert.equal(cancelled.status, 0, cancelled.stderr);
     assert.equal(cancelled.stdout.trim(), "");
     assert.deepEqual(readdirSync(pending), []);
 
-    const again = run(["--event", "stop", "--agent", "claude", "--delay", "5", "--stdin-json"], payload, env);
+    const again = run(["notify", "stop", "--agent", "claude", "--delay", "5", "--stdin-json"], payload, env);
     assert.equal(again.status, 0, again.stderr);
-    const ack = run(["--cancel", "--agent", "claude", "--stdin-json"], JSON.stringify({
+    const ack = run(["cancel", "--agent", "claude", "--stdin-json"], JSON.stringify({
       session_id: "claude-test",
       hook_event_name: "UserPromptSubmit",
       prompt: "/ack",
@@ -75,7 +75,7 @@ test("claude stdin supplies session, message and cancel target", () => {
     assert.equal(JSON.parse(ack.stdout).decision, "block");
     assert.deepEqual(readdirSync(pending), []);
 
-    const empty = run(["statusline"], JSON.stringify({ session_id: "claude-test" }), env);
+    const empty = run(["_statusline"], JSON.stringify({ session_id: "claude-test" }), env);
     assert.equal(empty.stdout.trim(), "");
   } finally {
     rmSync(dir, { recursive: true, force: true });
