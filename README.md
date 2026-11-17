@@ -74,7 +74,7 @@ agent-notify uninstall        # 移除本工具写入的条目
 - 状态栏包装原来的 statusLine，每秒刷新；有待发通知时在一行末尾追加 `消息通知时间 HH:mm:ss · MM:SS 后`。
 - 输入 `/ack` 时，`UserPromptSubmit` hook 先取消当前会话待发通知，并返回 `decision: block`；Claude 不会生成回复。`disable-model-invocation: true` 禁止模型自动调用。
 - 卸载会恢复原 statusLine，并删除本工具生成的 `/ack`。
-- 正文优先取 `Notification` 的 `message`，其次取 `Stop` 的 `last_assistant_message`，截到 50 字；`--message` 仍然优先。
+- 正文优先取 `Notification` 的 `message`，其次取 `Stop` 的 `last_assistant_message`，先截到 200 字，拼进正文时再按 120 字收口；`--message` 仍然优先。
 - hook 命令使用 setup 时的 node 绝对路径和 `dist/cli.js` 绝对路径；换 node 版本或移动仓库后重跑 `agent-notify setup`。
 - 修改的是用户级 `~/.claude/settings.json`，只追加本工具的 hook 和状态栏包装；`agent-notify uninstall` 只删除这些条目并恢复原状态栏。
 - Claude Code 没有逐键输入事件；开始输入不会像 Pi/OpenCode 那样自动取消，提交时由 `UserPromptSubmit` 撤销。
@@ -106,7 +106,7 @@ agent-notify uninstall        # 移除本工具写入的条目
 
 ### 通知格式
 
-只有标题和正文两行，没有副标题。标题是 Agent 名（如 `claude` / `pi` / `opencode`），正文以事件文案（任务完成 / 任务出错 / 等待处理）开头，后接「耗时 + 摘要」；附加信息在正文里用 ` · ` 接在事件文案后面。摘要按**第一句的句号或换行**截断，找不到句号才按 120 字硬截断。图标按 Agent 区分：
+只有标题和正文两行，没有副标题。标题是 Agent 名（如 `claude` / `pi` / `opencode`），正文以事件文案（任务完成 / 任务出错 / 等待处理）开头，后接「耗时 + 摘要」；附加信息在正文里用 ` · ` 接在事件文案后面。摘要按**第一句的句末标点**截断（`。！？!?` `…` `...` 冒号 `：`，以及换行），并带上紧跟的收尾引号/括号（`”’」』】）)`）；半角 `.` / `:` 只在后面跟空白或结尾时才算句末（不切断 `1.5`、`C:\Users`、`http://`）；Markdown 标题开头的 `#` 会先剥掉。找不到句末标点才按 120 字硬截断。图标按 Agent 区分：
 
 - Claude Code：标题 = `claude`
 - Pi：标题 = `pi`，图标 = Pi logo
