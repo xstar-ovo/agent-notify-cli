@@ -2,7 +2,7 @@
 
 给 AI 编码 Agent 用的统一通知 CLI：任务结束 / 需要你操作 / 出错时推到手机，可设置延迟，离开电脑时不用一直盯着终端。
 
-**当前支持：Pi + Bark。** Claude Code、OpenCode 未内置自动安装，Telegram 渠道未实现。
+**当前支持：Pi + OpenCode V2 + Bark。** Claude Code 未内置自动安装，Telegram 渠道未实现。
 
 ## 安装
 
@@ -40,22 +40,29 @@ key 直接写进配置文件，重启 / 关机后仍生效，不依赖环境变�
   "bark": { "enabled": true, "endpoint": "https://api.day.app/{device_key}", "deviceKey": "{env:BARK_DEVICE_KEY}" },
   "events": { "stop": { "bark": true }, "notification": { "bark": true }, "error": { "bark": true }, "settled": { "bark": true } },
   "timeoutMs": 3000,
-  "delayMs": { "stop": 180000, "settled": 180000, "error": 0, "notification": 0, "max": 300000 },
+  "delayMs": { "stop": 300000, "settled": 300000, "error": 0, "notification": 0, "max": 600000 },
   "aggregateWindowMs": 5000
 }
 ```
 
-`bark.endpoint` 里的 `{device_key}` 会被替换成 key；换自建服务器就改这一行。`bark.icon` 可设全局默认图标，`delayMs` 单位是毫秒（命令行 `--delay` 是秒）。
+`bark.endpoint` 里的 `{device_key}` 会被替换成 key；换自建服务器就改这一行。`bark.icon` 可设全局默认图标，`delayMs` 是用户自定义通知时间的入口，单位是毫秒（命令行 `--delay` 是秒）。
 
-## 接入 Pi
+## 接入 Agent
 
 ```bash
-agent-notify setup            # 写入 ~/.pi/agent/extensions/agent-notify.ts
+agent-notify setup            # 写入检测到的 Pi 扩展和 OpenCode 插件
 agent-notify setup --dry-run  # 只看会写什么，不动文件
 agent-notify setup --uninstall
 ```
 
-写完在 Pi 里 `/reload` 生效。扩展行为：
+同时检测到 Pi 和 OpenCode 时两个都会写；`--dry-run` 会分别打印各自将写入的内容。
+
+| Agent | 写入位置 | 生效方式 |
+|---|---|---|
+| Pi | `~/.pi/agent/extensions/agent-notify.ts` | 写完在 Pi 里 `/reload` |
+| OpenCode | `~/.config/opencode/plugins/agent-notify/`（`index.ts` 服务端 + `tui.tsx` 终端界面） | 重启 OpenCode（插件在启动时加载）；需 2.x（V2 插件 API），1.x 的事件和插件格式不同，不支持 |
+
+### Pi 行为
 
 - `agent_start` 记开始时间，`agent_settled` 按配置延迟发送。
 - 出错记为「任务出错」（读 `agent_before_settle` 的 `outcome`），不会误报「任务完成」；自己按 Esc 打断则不推。
@@ -67,39 +74,58 @@ agent-notify setup --uninstall
 
 看完了结果但不想继续，按 `ctrl+shift+k` 或输 `/seen`，手机上还没发出去的那条通知就不会再推。
 
-通知内容：**标题 = 事件**（任务完成 / 任务出错 / 等待处理），**副标题 = `pi · 项目目录`**，**正文 = 耗时 + 摘要**，**图标 = Pi logo**。都可覆盖：
+### OpenCode 行为
+
+- `session.execution.succeeded` / `failed` 推送完成 / 出错；`interrupted`（自己按 Esc、关机、被新任务取代、长时间不活跃）不推。
+- 正文带耗时和最后一段回复前 60 字的摘要。
+- 收到新提示词或新执行开始时，撤销该会话还没发出的通知；`session.deleted` 也会清理。
+- `permission.asked` / `form.created` 立即提醒「需要你操作」，1 分钟内只提醒一次；`permission.replied` / `form.replied` / `form.cancelled` 后撤销。
+- 子代理（subagent）的会话不单独推送，也不显示 TUI 倒计时，避免一个任务弹一串通知。
+- 插件分两部分：服务端 `index.ts` 负责 Bark 推送，TUI 部分 `tui.tsx` 在任务结束 / 出错时于 OpenCode 输入框上方常驻显示 `消息通知时间 11:34:21 · 04:32 后` 倒计时，到点后消失。
+- 倒计时按配置的 `delayMs` 计算实际推送时间；对应事件或 Bark 总开关关闭时不显示。输入 `/seen` 或按 `ctrl+shift+k` 可取消当前会话待发通知；服务端自动钩子也会取消。
+- 插件用 setup 时的 node 绝对路径启动 CLI（OpenCode 本身跑在 Bun 里）。如果之后用 nvm 换了 node 路径，重跑一次 `agent-notify setup`，或设置环境变量 `AGENT_NOTIFY_NODE` 指向 node。
+- 找不到 `dist/cli.js` 时写 `~/.config/agent-notify/extension-error.log`，不打断 OpenCode。
+
+### 通知格式
+
+正文是附加信息：完成时是「耗时 + 摘要」，等待提醒可能带表单标题，出错时只保留事件文案。标题 / 副标题 / 图标按 Agent 区分：
+
+- Pi：标题 = `pi · 项目目录`，副标题 = 事件（任务完成 / 任务出错 / 等待处理），图标 = Pi logo
+- OpenCode：标题 = `opencode · 项目目录`，图标 = OpenCode logo
+
+`--title` 改副标题，`--message` 改正文，`--icon` 改图标，可以组合使用：
 
 ```bash
 agent-notify --event settled --title "重构 auth 模块" --message "改了 3 个文件" --icon https://example.com/x.png
 ```
 
-终端上看是这样：
+终端上看是这样（Pi）：
 
 ```
 ┌─────────────────────────────
-│ 任务完成
 │ pi · my-project
+│ 任务完成
 │ 用时 4分12秒 · 改完了 auth 中间件
 └─────────────────────────────
 ```
 
 ## 事件语义
 
-| 事件 | 含义 | 默认标题 | 默认延迟 |
+| 事件 | 含义 | 默认副标题 | 默认延迟 |
 |---|---|---|---|
-| `settled` | Pi 任务真正结束（不会自动继续） | 任务完成 | 3 分钟 |
-| `stop` | Claude Code Stop hook：一轮回答结束 | 任务完成 | 3 分钟 |
+| `settled` | Agent 任务真正结束（Pi 的 `agent_settled` / OpenCode 的 `session.execution.succeeded`） | 任务完成 | 5 分钟 |
+| `stop` | Claude Code Stop hook：一轮回答结束 | 任务完成 | 5 分钟 |
 | `notification` | 需要你操作（等确认 / 等输入） | 等待处理 | 立即 |
 | `error` | 任务出错 | 任务出错 | 立即 |
 
-`--title` / `--message` 可覆盖标题和正文。哪个渠道收哪个事件由 `events.<事件>.bark` 控制。
+`--title` 覆盖副标题（事件文案），`--message` 覆盖正文。哪个渠道收哪个事件由 `events.<事件>.bark` 控制。
 
 ## 延迟通知
 
 任务结束后隔一段时间再提醒，避免你正好在看屏幕时被推一次、走了反而没提醒。
 
 - 按事件配置：`delayMs.stop` / `delayMs.settled` / `delayMs.error` / `delayMs.notification`（毫秒）。
-- 单次覆盖：`--delay <秒>`，超过 `delayMs.max`（默认 300000，可调，上限 600000）会被截断。
+- 单次覆盖：`--delay <秒>`，`0` = 立即；超过 `delayMs.max`（默认 600000，可调，上限 1800000）会被截断。
 - 同一 session 在延迟期内再次触发会**覆盖**上一条，任务重新开始就不会误报完成。
 - `--cancel --session <id>` 撤销；`agent_start` 等钩子会自动撤销。
 - 多条同时到期聚合成一条（`aggregateWindowMs`，默认 5 秒），不刷屏。
@@ -115,7 +141,7 @@ agent-notify --event settled --title "重构 auth 模块" --message "改了 3 �
 | `agent-notify test` | 发一条测试通知（退出码 1 = 失败） |
 | `agent-notify flush` | 立即发送所有已到期的待发通知 |
 | `agent-notify key <bark-key>` | 把 Bark key 写入配置文件（持久化） |
-| `agent-notify setup [--dry-run] [--uninstall] [--yes]` | 写入 / 卸载 Pi 扩展 |
+| `agent-notify setup [--dry-run] [--uninstall] [--yes]` | 写入 / 卸载检测到的 Pi 扩展和 OpenCode 插件 |
 | `agent-notify --help` | 用法 |
 
 选项（配合 `--event` 用，Agent 钩子也是这么调）：
@@ -123,26 +149,26 @@ agent-notify --event settled --title "重构 auth 模块" --message "改了 3 �
 | 选项 | 说明 |
 |---|---|
 | `--event <stop\|settled\|notification\|error>` | 触发哪个事件 |
-| `--delay <秒>` | 覆盖该事件的延迟，`0` = 立即 |
+| `--delay <秒>` | 覆盖该事件的延迟，详见「延迟通知」 |
 | `--session <id>` | 去重 / 取消用的键，同 session 只留最新一条 |
 | `--message <text>` | 附加到正文 |
-| `--title <text>` / `--icon <url>` | 覆盖标题 / 图标 |
-| `--agent <name>` | 正文前缀，默认 `agent`（读到 Claude hook JSON 时自动用 `claude`） |
+| `--title <text>` / `--icon <url>` | 覆盖副标题 / 图标 |
+| `--agent <name>` | 标题前缀，默认 `agent`（读到 Claude hook JSON 时自动用 `claude`） |
 | `--stdin-json` | 从 stdin 读 Agent 传入的 hook JSON（300ms 超时，不阻塞） |
 | `--cancel` | 取消该 session 的待发通知 |
 
 除 `test` 外永远 `exit 0`：通知失败只写 `~/.config/agent-notify/error.log`（已脱敏，>1MB 轮转），绝不打断 Agent。
 
-## 自检
+## 自检与排障
 
 ```bash
 agent-notify test                          # 1) 渠道通不通
 agent-notify --event stop --delay 0 --message "手动测试"   # 2) 整条链路通不通
 ```
 
-## 没收到通知？
+没收到通知时按顺序查：
 
-1. `agent-notify test` —— 报 key missing 就 `agent-notify key <key>`；报 HTTP 错误就看 `error.log`。Bark 返回 `{"code":200}` 才算成功，HTTP 200 也可能是业务失败。
+1. `agent-notify test` —— 渠道通不通：报 key missing 就 `agent-notify key <key>`；报 HTTP 错误就看 `error.log`。Bark 返回 `{"code":200}` 才算成功，HTTP 200 也可能是业务失败。
 2. `~/.config/agent-notify/state/pending/` —— 有 `.json` 说明还在等延迟，时间没到或 waker 被关机杀掉了，`agent-notify flush` 立即补发。
 3. `~/.config/agent-notify/error.log` —— 最近失败原因（已脱敏，可直接贴出来）。
 
