@@ -173,8 +173,8 @@ agent-notify notify settled --message "改了 3 个文件。" --icon https://exa
 | 命令 | 说明 |
 |---|---|
 | `agent-notify test` | 发一条测试通知（退出码 1 = 失败） |
-| `agent-notify status` | 当前配置和待发通知（还剩多久） |
-| `agent-notify doctor` | 自查：配置、key、node / CLI 路径、各 Agent 的接入状态（退出码 1 = 有硬错误） |
+| `agent-notify status` | 当前配置和待发通知（还剩多久）；有新版本时提示升级（结果缓存 24 小时） |
+| `agent-notify doctor` | 自查：配置、key、node / CLI 路径、各 Agent 的接入状态（退出码 1 = 有硬错误）；同样带新版本提示 |
 | `agent-notify --help` | 用法 |
 
 `notify` 的选项：

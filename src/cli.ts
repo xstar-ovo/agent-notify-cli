@@ -18,6 +18,7 @@ import { detectPi, piExtensionContent, piExtensionStatus, PI_EXTENSION_PATH, rem
 import { appendLog } from "./util/log.js";
 import { redact } from "./util/redact.js";
 import { readStdinJson } from "./util/stdin.js";
+import { checkUpdate } from "./util/update.js";
 
 const HELP = `an / agent-notify — unified agent notifications
 
@@ -104,9 +105,9 @@ async function run(): Promise<number> {
     case "test":
       return testCommand(config, warnings);
     case "status":
-      return statusCommand(config, warnings);
+      return await statusCommand(config, warnings);
     case "doctor":
-      return doctorCommand(config, warnings);
+      return await doctorCommand(config, warnings);
     case "_statusline":
       return statuslineCommand(config);
     case "key":
@@ -206,15 +207,11 @@ function mmss(ms: number): string {
   return `${String(Math.floor(total / 60)).padStart(2, "0")}:${String(total % 60).padStart(2, "0")}`;
 }
 
-function statusCommand(config: AgentNotifyConfig, warnings: string[]): number {
+async function statusCommand(config: AgentNotifyConfig, warnings: string[]): Promise<number> {
   for (const w of warnings) console.log(`警告：${w}`);
   console.log(`配置：${configPath}`);
   console.log(`Bark：${config.bark.enabled ? "启用" : "停用"}，key ${config.bark.deviceKey ? maskKey(config.bark.deviceKey) : "未配置"}`);
   const recs = listPending(config);
-  if (recs.length === 0) {
-    console.log("待发：0 条");
-    return 0;
-  }
   console.log(`待发：${recs.length} 条`);
   for (const rec of recs) {
     const left = rec.dueAt - Date.now();
@@ -222,10 +219,17 @@ function statusCommand(config: AgentNotifyConfig, warnings: string[]): number {
     const text = rec.message ? rec.message.replace(/\s+/g, " ").slice(0, 40) : "";
     console.log(`  ${rec.session}  ${rec.event}  ${when}${text ? `  ${text}` : ""}`);
   }
+  await printUpdateHint();
   return 0;
 }
 
-function doctorCommand(config: AgentNotifyConfig, warnings: string[]): number {
+/** 只给手动命令用；hook 路径不查版本，避免每次停顿都发网络请求。 */
+async function printUpdateHint(): Promise<void> {
+  const newer = await checkUpdate();
+  if (newer) console.log(`\n新版 ${newer} 可用：npm i -g agent-notify-cli@latest`);
+}
+
+async function doctorCommand(config: AgentNotifyConfig, warnings: string[]): Promise<number> {
   let bad = false;
   for (const w of warnings) console.log(`警告：${w}`);
 
@@ -256,6 +260,7 @@ function doctorCommand(config: AgentNotifyConfig, warnings: string[]): number {
   agentRow("Pi", detectPi(), piExtensionStatus());
   agentRow("OpenCode", detectOpenCode(), openCodePluginStatus());
 
+  await printUpdateHint();
   if (bad) return 1;
   console.log(config.bark.enabled ? "\n一切正常；an test 可验证推送。" : "\n一切正常（Bark 已停用，an test 会失败）。");
   return 0;
