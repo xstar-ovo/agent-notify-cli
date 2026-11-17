@@ -69,10 +69,10 @@ agent-notify setup --uninstall
 - 正文带耗时和最后一条回复前 60 字的摘要，手机上能看出该不该回去看。
 - `agent_start`、`input`、`session_shutdown`、`ui_prompt_end` 取消该会话的待发通知，避免人已经回来了还响。
 - 连弹多个确认框 1 分钟内只提醒一次。
-- 等待期间底部状态栏显示「通知 2分41秒 后推送 · ctrl+shift+k 取消」，倒数到 1 秒内自动消失。
+- 等待期间底部状态栏显示「通知 2分41秒 后推送 · /ack 取消」，倒数到 1 秒内自动消失。
 - 找不到 `dist/cli.js`（仓库挪了位置或没 build）时，TUI 会红字提示并写入 `~/.config/agent-notify/extension-error.log`，不再静默失效。
 
-看完了结果但不想继续，按 `ctrl+shift+k` 或输 `/seen`，手机上还没发出去的那条通知就不会再推。
+看完了结果但不想继续，输 `/ack`，手机上还没发出去的那条通知就不会再推。
 
 ### OpenCode 行为
 
@@ -82,7 +82,7 @@ agent-notify setup --uninstall
 - `permission.asked` / `form.created` 立即提醒「需要你操作」，1 分钟内只提醒一次；`permission.replied` / `form.replied` / `form.cancelled` 后撤销。
 - 子代理（subagent）的会话不单独推送，也不显示 TUI 倒计时，避免一个任务弹一串通知。
 - 插件分两部分：服务端 `index.ts` 负责 Bark 推送，TUI 部分 `tui.tsx` 在任务结束 / 出错时于 OpenCode 输入框上方常驻显示 `消息通知时间 11:34:21 · 04:32 后` 倒计时，到点后消失。
-- 倒计时按配置的 `delayMs` 计算实际推送时间；对应事件或 Bark 总开关关闭时不显示。输入 `/seen` 或按 `ctrl+shift+k` 可取消当前会话待发通知；服务端自动钩子也会取消。
+- 倒计时按配置的 `delayMs` 计算实际推送时间；对应事件或 Bark 总开关关闭时不显示。输入 `/ack` 可取消当前会话待发通知；服务端自动钩子也会取消。
 - 插件用 setup 时的 node 绝对路径启动 CLI（OpenCode 本身跑在 Bun 里）。如果之后用 nvm 换了 node 路径，重跑一次 `agent-notify setup`，或设置环境变量 `AGENT_NOTIFY_NODE` 指向 node。
 - 找不到 `dist/cli.js` 时写 `~/.config/agent-notify/extension-error.log`，不打断 OpenCode。
 

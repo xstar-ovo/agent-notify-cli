@@ -353,9 +353,7 @@ export default Plugin.define({
           title: "取消待发通知",
           description: "我看过了，取消待发通知",
           group: "Agent Notify",
-          bind: "ctrl+shift+k",
-          palette: true,
-          slash: { name: "seen" },
+          slash: { name: "ack" },
           run: () => {
             const route = ctx.ui.router.current();
             if (route?.type !== "session") return;
@@ -364,7 +362,6 @@ export default Plugin.define({
           },
         },
       ],
-      bindings: ["agent-notify.cancel"],
     }));
 
     const off = ctx.ui.slot({

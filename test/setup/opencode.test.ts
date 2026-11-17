@@ -128,9 +128,8 @@ test("opencode tui plugin shows the scheduled time at task end", () => {
   assert.match(src, /draft\.due\[id\] = dueAt/);
   assert.match(src, /--cancel/);
   assert.match(src, /ctx\.keymap\.layer/);
-  assert.match(src, /slash: \{ name: "seen" \}/);
-  assert.match(src, /bind: "ctrl\+shift\+k"/);
-  assert.match(src, /bindings: \["agent-notify\.cancel"\]/);
+  assert.match(src, /slash: \{ name: "ack" \}/);
+  assert.doesNotMatch(src, /ctrl\+shift\+k|bindings:|palette:\s*true/);
   assert.match(src, /ctx\.ui\.router\.current/);
 });
 

@@ -99,13 +99,13 @@ function clearCountdown() {
   ui?.setStatus?.("agent-notify", undefined);
 }
 
-// 底部状态栏显示还要等多久，看完了按 ctrl+shift+k 撤掉
+// 底部状态栏显示还要等多久，看完了用 /ack 撤掉
 function countdown(dueAt: number) {
   clearCountdown();
   const tick = () => {
     const left = dueAt - Date.now();
     if (left < 1000) return clearCountdown(); // 不足 1 秒就当已发出，别停在「0 秒」
-    ui?.setStatus?.("agent-notify", \`通知 \${fmt(left)} 后推送 · ctrl+shift+k 取消\`);
+    ui?.setStatus?.("agent-notify", \`通知 \${fmt(left)} 后推送 · /ack 取消\`);
   };
   ticker = setInterval(tick, 1000);
   tick();
@@ -172,15 +172,8 @@ export default function (pi: any) {
     const delay = delayFor(failed ? "error" : "settled");
     if (delay > 0) countdown(Date.now() + delay);
   });
-  // 看完结果、不想继续：按 ctrl+shift+k 或输 /seen 撤掉还没发出的通知
-  pi.registerShortcut("ctrl+shift+k", {
-    description: "我看过了，取消待发通知",
-    handler: async (ctx: any) => {
-      cancelAll();
-      ctx?.ui?.notify?.("已取消待发通知", "info");
-    },
-  });
-  pi.registerCommand("seen", {
+  // 看完结果、不想继续：输 /ack 撤掉还没发出的通知
+  pi.registerCommand("ack", {
     description: "取消待发通知（我看过了，不用再推）",
     handler: async (_args: string, ctx: any) => {
       cancelAll();

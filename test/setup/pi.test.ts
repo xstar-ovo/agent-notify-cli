@@ -113,10 +113,10 @@ test("pi extension uses the same delay defaults and caps as the cli", () => {
   assert.ok(!src.includes("FALLBACK_DELAY_MS"), "不再用 3 分钟硬编码兜底");
 });
 
-test("pi extension lets the user cancel pending notifications by hand", () => {
+test("pi extension lets the user cancel pending notifications with /ack", () => {
   const src = piExtensionContent();
-  assert.match(src, /pi\.registerShortcut\("ctrl\+shift\+k"/);
-  assert.match(src, /pi\.registerCommand\("seen"/);
-  // 两个入口都要真的调 cancelAll（只注册不干活就是静默失效）：3 个事件 + 2 个手动入口 + 1 处定义
-  assert.equal((src.match(/cancelAll/g) ?? []).length, 6);
+  assert.match(src, /pi\.registerCommand\("ack"/);
+  assert.doesNotMatch(src, /registerShortcut|ctrl\+shift\+k/);
+  // 命令要真的调 cancelAll（只注册不干活就是静默失效）：3 个事件 + 1 个手动入口 + 1 处定义
+  assert.equal((src.match(/cancelAll/g) ?? []).length, 5);
 });
