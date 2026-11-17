@@ -23,6 +23,10 @@ test("claude hooks cover stop, permission prompt and prompt submit", () => {
   assert.match(commandsOf(merged, "Stop")[0], /--agent claude notify stop --stdin-json/);
   assert.equal(hooksOf(merged).Notification[0].matcher, "permission_prompt");
   assert.match(commandsOf(merged, "Notification")[0], /notify notification/);
+  // --icon 是签名的一部分：缺了会让 doctor 报 outdated，测试必须锁住。
+  for (const event of ["Stop", "Notification"]) {
+    assert.match(commandsOf(merged, event)[0], /--icon "?https:\/\/img\.cdn1\.vip\/i\/[^"\s]+/);
+  }
   assert.match(commandsOf(merged, "UserPromptSubmit")[0], /--agent claude cancel --stdin-json/);
 });
 
