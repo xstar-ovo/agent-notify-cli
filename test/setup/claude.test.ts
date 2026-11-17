@@ -51,6 +51,10 @@ test("hooks status tells current from outdated and missing", () => {
   assert.equal(claudeHooksStatus({
     hooks: { Stop: [{ hooks: [{ type: "command", command: '"node" "cli.js" --agent claude --event stop --stdin-json' }] }] },
   }), "outdated");
+  // 全局卸载 / 移动安装目录后 hooks 指向不存在的 cli.js：必须报 broken，而不是 current。
+  assert.equal(claudeHooksStatus({
+    hooks: { Stop: [{ hooks: [{ type: "command", command: '"node" "/nope/dist/cli.js" --agent claude notify stop --stdin-json' }] }] },
+  }), "broken");
 });
 
 test("claude hook commands quote node and cli paths", () => {

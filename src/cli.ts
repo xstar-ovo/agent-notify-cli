@@ -253,6 +253,7 @@ async function doctorCommand(config: AgentNotifyConfig, warnings: string[]): Pro
     if (!detected) return row(name, "未检测到");
     if (status === "current") return row(name, `已接入，最新（${detected}）`);
     if (status === "invalid") return row(name, `已接入，但 settings.json 解析失败`, false);
+    if (status === "broken") return row(name, `已接入，但 hooks 指向已删除的安装路径（运行 an setup 或 an uninstall）`, false);
     if (status === "outdated") return row(name, `已接入，但写入的是旧版本（运行 an setup 更新）`);
     return row(name, `检测到 ${detected}，但未接入（运行 an setup）`);
   };

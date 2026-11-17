@@ -371,19 +371,28 @@ function hookCommands(settings: JsonObject): string[] {
 }
 
 /** hooks 是否为当前签名；旧版本写入的算 outdated，供 doctor 提示重跑 setup。 */
-export function claudeHooksStatus(settings?: unknown): "current" | "outdated" | "missing" | "invalid" {
+export function claudeHooksStatus(settings?: unknown): "current" | "outdated" | "missing" | "invalid" | "broken" {
   if (settings !== undefined) return statusOf(settings);
   const current = readSettings();
   if (current.invalid) return "invalid";
   return statusOf(current.data ?? {});
 }
 
-function statusOf(settings: unknown): "current" | "outdated" | "missing" {
+function statusOf(settings: unknown): "current" | "outdated" | "missing" | "broken" {
   if (!isObject(settings)) return "missing";
-  const commands = hookCommands(settings);
+  const commands = hookCommands(settings).filter(isOurs);
+  if (commands.length === 0) return "missing";
+  // 指向已被卸载 / 移动的 cli.js：每次 Stop 都会报 Cannot find module，优先提示。
+  if (commands.some(cliTargetMissing)) return "broken";
   // 只比参数签名：换 node 版本 / 安装路径后命令仍能用，不该报 outdated。
   if (SPECS.every((spec) => commands.some((cmd) => cmd.includes(signatureFor(spec))))) return "current";
-  return commands.some(isOurs) ? "outdated" : "missing";
+  return "outdated";
+}
+
+function cliTargetMissing(command: string): boolean {
+  const target = /"([^"]*cli\.js)"/.exec(command)?.[1];
+  // 相对路径（手写的 hook）没法可靠判断，只查 setup 写入的绝对路径。
+  return target !== undefined && path.isAbsolute(target) && !existsSync(target);
 }
 
 /** dry-run 只展示将添加的 hooks 和状态栏入口，不展示用户 settings 里的凭据。 */
