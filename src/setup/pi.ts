@@ -99,12 +99,22 @@ function clearCountdown() {
   ui?.setStatus?.("agent-notify", undefined);
 }
 
+function editorText(): string | undefined {
+  try {
+    return ui?.getEditorText?.();
+  } catch {
+    return undefined;
+  }
+}
+
 // 底部状态栏显示还要等多久，看完了用 /ack 撤掉
 function countdown(dueAt: number) {
   clearCountdown();
+  const seen = editorText();
   const tick = () => {
     const left = dueAt - Date.now();
     if (left < 1000) return clearCountdown(); // 不足 1 秒就当已发出，别停在「0 秒」
+    if (seen !== undefined && editorText() !== seen) return cancelAll(); // 开始输入就当我回来了
     ui?.setStatus?.("agent-notify", \`通知 \${fmt(left)} 后推送 · /ack 取消\`);
   };
   ticker = setInterval(tick, 1000);

@@ -117,6 +117,14 @@ test("pi extension lets the user cancel pending notifications with /ack", () => 
   const src = piExtensionContent();
   assert.match(src, /pi\.registerCommand\("ack"/);
   assert.doesNotMatch(src, /registerShortcut|ctrl\+shift\+k/);
-  // 命令要真的调 cancelAll（只注册不干活就是静默失效）：3 个事件 + 1 个手动入口 + 1 处定义
-  assert.equal((src.match(/cancelAll/g) ?? []).length, 5);
+  // 命令要真的调 cancelAll（只注册不干活就是静默失效）：3 个事件 + 1 个手动入口 + 1 个轮询 + 1 处定义
+  assert.equal((src.match(/cancelAll/g) ?? []).length, 6);
+});
+
+test("pi extension cancels a pending notification when the user starts typing", () => {
+  const src = piExtensionContent();
+  assert.match(src, /function editorText\(\)/);
+  assert.match(src, /const seen = editorText\(\)/);
+  assert.match(src, /seen !== undefined && editorText\(\) !== seen/);
+  assert.match(src, /return cancelAll\(\)/);
 });
