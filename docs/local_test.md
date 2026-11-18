@@ -93,10 +93,28 @@ echo '{"session_id":"dev1"}' | node "$env:USERPROFILE\.claude\agent-notify-statu
 
 ## 六、切回发布版
 
+前提：发布版里要有你刚测的改动。注册表上的版本是上次 CI 发的，**没发版就直接切回去等于回退**。先 `npm version minor && git push` 让 CI 发版，或者接受丢掉本地改动。
+
 ```powershell
+# 1. 摘掉全局的目录链接（只删链接，不碰仓库）
+cmd /c rmdir "$(Join-Path (npm root -g) 'agent-notify-cli')"
+
+# 2. 装注册表版本
 npm i -g agent-notify-cli@latest
-agent-notify setup --yes        # refreshOurs 会把命令改回全局路径
+
+# 3. 让集成改回安装目录路径（这步不能省）
+agent-notify setup --yes
+
+# 4. 核对
+npm list -g --depth=0          # 不该再有 ->
+an doctor                      # CLI 行应指向 ...\node_modules\agent-notify-cli\dist\cli.js
 ```
+
+### 为什么不能先 `npm i -g` / 不能 `Remove-Item -Recurse`
+
+`npm i -g .` 在全局建立的不是副本，而是**指向仓库的目录链接**（junction，`npm list -g` 里显示 `agent-notify-cli@0.3.1 -> D:\Desktop\agent_notify_cli`）。对着链接用 `Move-Item` 或 `Remove-Item -Recurse`，PowerShell 会把它当普通目录递归进去，**删除/搬走的是仓库里的真实文件**（`Move-Item` 还会先搬内容再删链接，失败时表现为「仓库被清空」）。摘链接只能用 `cmd /c rmdir`：不递归、只解引用。
+
+万一已经踩了：文件通常整批在目标位置（如 `%TEMP%\an-dev-link-backup`），用 `robocopy <备份> D:\Desktop\agent_notify_cli /MOVE /E` 搬回来，再 `git log -1` + `npm test` 核对。
 
 ## 七、关于 `npm link`
 
