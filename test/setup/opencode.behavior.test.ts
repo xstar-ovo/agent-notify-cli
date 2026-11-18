@@ -77,3 +77,34 @@ test("failed does not send the provider error text", () => {
   );
   assert.ok(!calls.flat().join(" ").includes("sk-secret-key"));
 });
+
+test("completed notification uses the session title, falling back to the reply text", () => {
+  const { plugin, calls } = loadPlugin();
+  const base = process.cwd();
+  plugin.handle(event("session.execution.started", { sessionID: "s" }, base), base);
+  plugin.handle(event("session.updated", { info: { sessionID: "s", title: "Refactor auth" } }, base), base);
+  plugin.handle(event("session.text.ended", { sessionID: "s", text: "reply first sentence。" }, base), base);
+  calls.length = 0;
+  plugin.handle(event("session.execution.succeeded", { sessionID: "s" }, base), base);
+  const titled = calls.find((args) => args.includes("settled"));
+  assert.ok(titled, "发出完成通知");
+  assert.match(titled![titled!.indexOf("--message") + 1], /Refactor auth/);
+  assert.ok(!titled!.includes("reply first sentence。"));
+
+  // 标题在空闲时异步到达（state 被 succeeded 删掉后又建回来），下一轮不能丢
+  calls.length = 0;
+  plugin.handle(event("session.updated", { info: { sessionID: "s", title: "Ship docs" } }, base), base);
+  plugin.handle(event("session.execution.started", { sessionID: "s" }, base), base);
+  plugin.handle(event("session.execution.succeeded", { sessionID: "s" }, base), base);
+  const next = calls.find((args) => args.includes("settled"));
+  assert.match(next![next!.indexOf("--message") + 1], /Ship docs/);
+
+  // 标题异步晚到时退回回复首句
+  calls.length = 0;
+  plugin.handle(event("session.execution.started", { sessionID: "t" }, base), base);
+  plugin.handle(event("session.text.ended", { sessionID: "t", text: "reply fallback。" }, base), base);
+  plugin.handle(event("session.execution.succeeded", { sessionID: "t" }, base), base);
+  const fallback = calls.find((args) => args.includes("settled"));
+  assert.ok(fallback);
+  assert.match(fallback![fallback!.indexOf("--message") + 1], /reply fallback/);
+});

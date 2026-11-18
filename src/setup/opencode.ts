@@ -59,7 +59,7 @@ const NODE = process.env.AGENT_NOTIFY_NODE || ${JSON.stringify(NODE_PATH)};
 const ICON = "https://opencode.ai/favicon.ico";
 const LOG = path.join(os.homedir(), ".config", "agent-notify", "extension-error.log");
 
-const states = new Map<string, { startedAt: number; summary: string }>();
+const states = new Map<string, { startedAt: number; summary: string; title: string }>();
 const children = new Set<string>();
 const waitAt = new Map<string, number>();
 
@@ -131,6 +131,17 @@ function handle(event: any, base: string) {
     return;
   }
 
+  // 标题走 session.updated 的 info（顶层没有 sessionID），异步生成后随时会补上
+  if (type === "session.updated") {
+    const info = data.info ?? {};
+    const tid = typeof info.sessionID === "string" ? info.sessionID : undefined;
+    if (!tid || children.has(tid)) return;
+    const state = states.get(tid) ?? { startedAt: 0, summary: "", title: "" };
+    if (typeof info.title === "string") state.title = info.title;
+    states.set(tid, state);
+    return;
+  }
+
   const id = data.sessionID;
   if (typeof id !== "string") return;
   const session = key(id);
@@ -146,12 +157,13 @@ function handle(event: any, base: string) {
 
   switch (type) {
     case "session.execution.started":
-      states.set(id, { startedAt: Date.now(), summary: "" });
+      const prev = states.get(id);
+      states.set(id, { startedAt: Date.now(), summary: "", title: prev?.title ?? "" });
       waitAt.delete(id);
       cancel(id, cwd); // 新一轮开始，旧 completion 和 waiting 都作废
       return;
     case "session.text.ended": {
-      const state = states.get(id) ?? { startedAt: 0, summary: "" };
+      const state = states.get(id) ?? { startedAt: 0, summary: "", title: "" };
       state.summary = String(data.text ?? "").replace(/\\s+/g, " ").trim().slice(0, ${SUMMARY_CHARS});
       states.set(id, state);
       return;
@@ -159,7 +171,7 @@ function handle(event: any, base: string) {
     case "session.execution.succeeded": {
       const state = states.get(id);
       const span = state?.startedAt ? fmt(Date.now() - state.startedAt) : "";
-      const message = [span && \`用时 \${span}\`, state?.summary].filter(Boolean).join(" · ");
+      const message = [span && \`用时 \${span}\`, state?.title || state?.summary].filter(Boolean).join(" · ");
       cancelWait(id, cwd);
       const args = ["notify", "settled", "--session", session, "--icon", ICON];
       if (message) args.push("--message", message);
@@ -195,6 +207,7 @@ function handle(event: any, base: string) {
 
 const SUBSCRIBE = [
   "session.created",
+  "session.updated",
   "session.deleted",
   "session.execution.started",
   "session.execution.succeeded",
