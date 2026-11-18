@@ -2,7 +2,7 @@
  * 文件功能：生成并安装 OpenCode V2 插件（执行完成/失败、等待操作、会话摘要与取消）。
  */
 
-import { existsSync, mkdirSync, readFileSync, realpathSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, realpathSync, rmdirSync, rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -517,7 +517,8 @@ export function removeOpenCodePlugin(): boolean {
     removed = true;
   }
   try {
-    rmSync(OPENCODE_PLUGIN_ROOT, { recursive: false });
+    // rmSync 对目录要 recursive:true（会误删用户文件），空目录只能用 rmdirSync。
+    rmdirSync(OPENCODE_PLUGIN_ROOT);
   } catch {
     /* 目录非空就保留 */
   }
