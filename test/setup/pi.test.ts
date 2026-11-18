@@ -14,6 +14,19 @@ function handlerOf(src: string, event: string): string {
   return src.slice(start, next < 0 ? src.length : next);
 }
 
+/** 取出函数体（按花括号配平），用来断言生成的辅助函数真的读了需要的字段。 */
+function betweenBraces(src: string, signature: string): string {
+  const start = src.indexOf(signature);
+  assert.ok(start >= 0, `未找到 ${signature}`);
+  const open = src.indexOf("{", start);
+  let depth = 0;
+  for (let i = open; i < src.length; i++) {
+    if (src[i] === "{") depth++;
+    else if (src[i] === "}" && --depth === 0) return src.slice(open, i + 1);
+  }
+  assert.fail("花括号不配平");
+}
+
 test("pi extension calls node + absolute cli.js, never the shell/cmd shim", () => {
   const src = piExtensionContent();
   assert.match(src, /const CLI = "[^"]*cli\.js";/);
@@ -66,13 +79,22 @@ test("pi extension stays quiet when the user aborted the run themselves", () => 
   assert.match(handlerOf(piExtensionContent(), "agent_settled"), /event\?\.aborted\) return/);
 });
 
-test("pi extension adds duration and a reply summary to the body", () => {
+test("pi extension mirrors /resume: name, then first user message, then reply", () => {
   const src = piExtensionContent();
   assert.match(handlerOf(src, "agent_end"), /role === "assistant"/);
   assert.match(handlerOf(src, "agent_end"), /summary = text/);
+  // 首条用户消息来自 sessionManager.getEntries()，跳过 system，取第一 role=user
+  const helper = betweenBraces(src, "function firstUserMessage");
+  assert.match(helper, /getEntries\?\.\(\)/);
+  assert.match(helper, /entry\?\.type !== "message"/);
+  assert.match(helper, /entry\?\.message\?\.role !== "user"/);
+  assert.match(helper, /b\?\.type === "text"/, "content 数组只取 text 块");
   const settled = handlerOf(src, "agent_settled");
   assert.ok(settled.includes("用时"), "正文带耗时");
-  assert.ok(settled.includes('args.push("--message", message)'), "耗时和摘要合成一条 --message");
+  assert.match(settled, /firstUserMessage\(ctx\.sessionManager\)/, "没设名时退回首条用户消息");
+  assert.match(settled, /getSessionName\?\.\(\) \|\| first \|\| summary/, "优先级：名字 > 首条消息 > 回复摘要");
+  assert.match(settled, /span && `用时 \$\{span\}`, subject/, "正文用标题而不是摘要");
+  assert.ok(settled.includes('args.push("--message", message)'), "耗时和标题合成一条 --message");
 });
 
 test("pi extension survives a moved or unbuilt cli path", () => {

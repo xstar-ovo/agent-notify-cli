@@ -126,6 +126,21 @@ function adopt(ctx: any) {
   if (id && KEY === \`pi:\${process.pid}\`) KEY = \`pi:\${id}\`;
 }
 
+// /resume 没设会话名时显示首条用户消息；这里复刻同一规则，数据现成、无需生成标题
+function firstUserMessage(sm: any): string {
+  for (const entry of sm?.getEntries?.() ?? []) {
+    if (entry?.type !== "message" || entry?.message?.role !== "user") continue;
+    const content = entry.message.content;
+    const text = typeof content === "string"
+      ? content
+      : Array.isArray(content)
+        ? content.filter((b: any) => b?.type === "text").map((b: any) => b.text).join(" ")
+        : "";
+    return text.replace(/\\s+/g, " ").trim();
+  }
+  return "";
+}
+
 export default function (pi: any) {
   // 用户回到终端敲字、任务重新开始、退出/切会话/重载：撤销还没发出的通知（否则人已经看过还得再收一次）
   pi.on("agent_start", (_event: any, ctx: any) => {
@@ -172,7 +187,10 @@ export default function (pi: any) {
     if (event?.aborted) return; // 自己按 Esc 打断，人就在终端前，不必再推
     const failed = outcome === "error";
     const span = startedAt ? fmt(Date.now() - startedAt) : "";
-    const message = [span && \`用时 \${span}\`, summary].filter(Boolean).join(" · ");
+    // 与 /resume 一致：有会话名用名字，否则用首条用户消息；再兜底本轮最后一句回复
+    const first = firstUserMessage(ctx.sessionManager).slice(0, ${SUMMARY_CHARS});
+    const subject = ctx.sessionManager?.getSessionName?.() || first || summary;
+    const message = [span && \`用时 \${span}\`, subject].filter(Boolean).join(" · ");
     // 标题由事件决定（任务完成 / 任务出错），不用任务名覆盖
     const args = ["notify", failed ? "error" : "settled", "--session", KEY, "--icon", ICON];
     if (message) args.push("--message", message);
