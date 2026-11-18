@@ -41,14 +41,15 @@ test("firstSentence keeps the period and drops trailing sentences", () => {
   assert.equal(firstSentence("Done. Tests pass.", 200), "Done.");
 });
 
-test("firstSentence cuts at ellipsis, colons and closing quotes", () => {
+test("firstSentence cuts at ellipsis and closing quotes, but not at colons", () => {
   assert.equal(firstSentence("稍等…我看看后面", 200), "稍等…");
   assert.equal(firstSentence("稍等……我看看", 200), "稍等……");
   assert.equal(firstSentence("Done... Tests pass.", 200), "Done...");
   assert.equal(firstSentence("他说：“好。”然后走了", 200), "他说：“好。”");
-  assert.equal(firstSentence("结果如下：后面还有", 200), "结果如下：");
-  assert.equal(firstSentence("error: ENOENT", 200), "error:");
-  // 半角冒号 / 句号后面不是空白时不截，避免切断路径、URL、版本号。
+  // 冒号不再是边界：会话标题里的「修复：登录」要整段保留。
+  assert.equal(firstSentence("结果如下：后面还有", 200), "结果如下：后面还有");
+  assert.equal(firstSentence("error: ENOENT", 200), "error: ENOENT");
+  // 半角句号后面不是空白时不截，避免切断路径、URL、版本号。
   assert.equal(firstSentence("路径 C:\\Users\\me", 200), "路径 C:\\Users\\me");
   assert.equal(firstSentence("见 http://a.b/c", 200), "见 http://a.b/c");
 });

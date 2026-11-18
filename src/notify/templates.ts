@@ -27,9 +27,9 @@ function clamp(text: string, max: number): string {
 export function firstSentence(text: string, max: number): string {
   // Markdown 标题：去掉 `#` 前缀，交给换行截断（否则会截出一个光秃秃的 `#`）。
   const body = text.replace(/^#{1,6}\s+/, "");
-  // 冒号后面是引号/括号时是引导（他说：“好。”），不算句末；半角句号/冒号后面不是空白也不截，
+  // 冒号不再是句末边界（标题里常有冒号）；半角句号后面不是空白也不截，
   // 避免切断 `C:\Users`、`http://`、`1.5`。
-  const boundary = /(?:…|\.{3}|[。！？!?\n]|：(?![“"「『（(])|\.(?=\s|$)|:(?!\s*[“"「『（(])(?=\s|$))[”’」』】）)…]*/.exec(body);
+  const boundary = /(?:…|\.{3}|[。！？!?\n]|\.(?=\s|$))[”’」』】）)…]*/.exec(body);
   const cut = boundary ? body.slice(0, boundary.index + boundary[0].length) : body;
   return clamp(cut.replace(/\s+/g, " ").trim(), max);
 }
