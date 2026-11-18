@@ -25,17 +25,47 @@ export function resolveEnv(value: unknown): unknown {
   return value;
 }
 
-export function loadConfig(): { config: AgentNotifyConfig; warnings: string[] } {
+export function loadConfig(file: string = configPath): { config: AgentNotifyConfig; warnings: string[] } {
   const warnings: string[] = [];
   let raw: unknown = {};
   try {
-    raw = JSON.parse(readFileSync(configPath, "utf8"));
+    raw = JSON.parse(readFileSync(file, "utf8"));
   } catch (err) {
     warnings.push((err as NodeJS.ErrnoException).code === "ENOENT" ? "config missing" : "config invalid");
+  }
+  const stale = staleKeys(raw);
+  if (stale.length > 0) {
+    warnings.push(`config has unknown keys: ${stale.join(", ")} (renamed in an upgrade? safe to delete)`);
   }
   const config = normalize(resolveEnv(raw), warnings);
   config.stateDir = expandHome(config.stateDir);
   return { config, warnings };
+}
+
+/**
+ * 找出配置里已不再生效的字段（旧版本残留 / 拼错）。只报告不删除：配置文件是用户数据，
+ * 真要改名时由那个版本的迁移逻辑显式搬字段，不能拿"清理未知键"当通用手段。
+ */
+function staleKeys(raw: unknown): string[] {
+  if (!isRecord(raw)) return [];
+  const out: string[] = [];
+  walk(raw, normalize({}) as unknown as Record<string, unknown>, "", out);
+  return out;
+}
+
+function walk(value: Record<string, unknown>, known: Record<string, unknown>, prefix: string, out: string[]): void {
+  for (const [key, child] of Object.entries(value)) {
+    const path = prefix ? `${prefix}.${key}` : key;
+    if (!(key in known)) {
+      out.push(path);
+    } else if (isRecord(known[key]) && isRecord(child)) {
+      walk(child, known[key], path, out);
+    }
+  }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === "object" && !Array.isArray(value);
 }
 
 /** 只在配置文件缺失时创建，真正写入了才返回 true。 */

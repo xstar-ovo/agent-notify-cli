@@ -7,7 +7,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { parseBarkKeyInput, saveDeviceKey } from "../../src/config/loader.js";
+import { loadConfig, parseBarkKeyInput, saveDeviceKey } from "../../src/config/loader.js";
 import { testBarkKey } from "../helpers/env.js";
 
 const tmp = () => path.join(mkdtempSync(path.join(os.tmpdir(), "an-cfg-")), "config.json");
@@ -30,6 +30,29 @@ test("replaces the {env:...} placeholder and keeps other settings", () => {
   assert.equal(raw.bark.deviceKey, "newkey123");
   assert.equal(raw.bark.level, "passive");
   assert.equal(raw.timeoutMs, 1500);
+});
+
+test("reports keys the current schema no longer reads, but keeps old values working", () => {
+  const file = tmp();
+  writeFileSync(
+    file,
+    JSON.stringify({
+      bogus: 1,
+      bark: { foo: true, deviceKey: "k" },
+      delayMs: { stop: 60, stale: 5 },
+      events: { stop: { bark: false, legacy: 1 } },
+    }),
+  );
+  const { config, warnings } = loadConfig(file);
+  assert.equal(config.delayMs.stop, 60, "没改名的旧字段照常生效");
+  assert.equal(config.events.stop.bark, false, "第三层有效字段也要生效");
+  const drift = warnings.find((w) => w.includes("unknown keys")) ?? "";
+  assert.match(drift, /\bbogus\b/);
+  assert.match(drift, /bark\.foo/);
+  assert.match(drift, /delayMs\.stale/);
+  assert.match(drift, /events\.stop\.legacy/, "嵌套三层的残留也要报");
+  assert.ok(!drift.includes("delayMs.stop"), "有效字段不能报成残留");
+  assert.ok(!drift.includes("events.stop.bark"), "有效字段不能报成残留");
 });
 
 test("refuses to clobber an unparsable config", () => {
