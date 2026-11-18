@@ -23,7 +23,16 @@ export const OPENCODE_TUI_PATH = path.join(OPENCODE_PLUGIN_ROOT, "tui.tsx");
 const OPENCODE_TUI_LEGACY_PATH = path.join(OPENCODE_PLUGIN_ROOT, "tui.ts");
 const OPENCODE_LEGACY_PATH = path.join(OPENCODE_PLUGIN_DIR, "agent-notify.ts");
 export const OPENCODE_CLI_CONFIG_PATH = path.join(OPENCODE_CONFIG_DIR, "cli.json");
-const OPENCODE_CLI_PLUGIN = pathToFileURL(OPENCODE_PLUGIN_ROOT).href;
+export const OPENCODE_CLI_PLUGIN = pathToFileURL(OPENCODE_PLUGIN_ROOT).href;
+
+/** 插件是否已写进 cli.json 的 plugins（文本匹配：JSONC 也能判，不用解析）。 */
+function isRegistered(): boolean {
+  try {
+    return readFileSync(OPENCODE_CLI_CONFIG_PATH, "utf8").includes(OPENCODE_CLI_PLUGIN);
+  } catch {
+    return false;
+  }
+}
 
 const MARKER = "由 agent-notify setup 生成";
 const CLI_PATH = fileURLToPath(new URL("../cli.js", import.meta.url));
@@ -431,8 +440,8 @@ export function openCodeTuiContent(): string {
   return OPENCODE_TUI_TEMPLATE;
 }
 
-/** 插件文件是否为本工具生成的当前版本，供 doctor 用。 */
-export function openCodePluginStatus(): "current" | "outdated" | "missing" {
+/** 插件文件是否为本工具生成的当前版本、且已在 cli.json 注册，供 doctor 用。 */
+export function openCodePluginStatus(): "current" | "outdated" | "missing" | "unregistered" {
   let state: "current" | "outdated" = "current";
   for (const [file, content] of [
     [OPENCODE_PLUGIN_PATH, OPENCODE_TEMPLATE],
@@ -447,7 +456,7 @@ export function openCodePluginStatus(): "current" | "outdated" | "missing" {
       return "missing";
     }
   }
-  return state;
+  return isRegistered() ? state : "unregistered";
 }
 
 function removeMarked(file: string): boolean {
@@ -461,28 +470,28 @@ function removeMarked(file: string): boolean {
   return true;
 }
 
-function updateOpenCodeCliConfig(add: boolean): boolean {
+function updateOpenCodeCliConfig(add: boolean): "ok" | "skip" | "unparsable" {
   let data: any = {};
   if (existsSync(OPENCODE_CLI_CONFIG_PATH)) {
     try {
       data = JSON.parse(readFileSync(OPENCODE_CLI_CONFIG_PATH, "utf8"));
     } catch {
-      return false; // 不覆盖用户手写的 JSONC / 非法配置
+      return "unparsable"; // 用户手写的 JSONC / 非法配置：不改它，交给调用方提示
     }
   }
-  if (!data || typeof data !== "object" || Array.isArray(data)) return false;
+  if (!data || typeof data !== "object" || Array.isArray(data)) return "unparsable";
   const plugins = Array.isArray(data.plugins) ? data.plugins.slice() : [];
   const index = plugins.indexOf(OPENCODE_CLI_PLUGIN);
   if (add && index < 0) plugins.push(OPENCODE_CLI_PLUGIN);
   else if (!add && index >= 0) plugins.splice(index, 1);
-  else return false;
+  else return "skip";
   if (plugins.length > 0) data.plugins = plugins;
   else delete data.plugins;
   atomicWriteText(OPENCODE_CLI_CONFIG_PATH, `${JSON.stringify(data, null, 2)}\n`);
-  return true;
+  return "ok";
 }
 
-export function writeOpenCodePlugin(): "written" | "unchanged" {
+export function writeOpenCodePlugin(): "written" | "unchanged" | "unregistered" {
   mkdirSync(OPENCODE_PLUGIN_ROOT, { recursive: true });
   let changed = false;
   for (const [file, content] of [
@@ -499,12 +508,13 @@ export function writeOpenCodePlugin(): "written" | "unchanged" {
   }
   const removed = removeMarked(OPENCODE_LEGACY_PATH) || removeMarked(OPENCODE_TUI_LEGACY_PATH);
   const registered = updateOpenCodeCliConfig(true);
-  return removed || changed || registered ? "written" : "unchanged";
+  if (registered === "unparsable") return "unregistered";
+  return removed || changed || registered === "ok" ? "written" : "unchanged";
 }
 
 /** 仅当插件是本工具生成的时候才删除。 */
 export function removeOpenCodePlugin(): boolean {
-  const unregistered = updateOpenCodeCliConfig(false);
+  const unregistered = updateOpenCodeCliConfig(false) === "ok";
   let removed = removeMarked(OPENCODE_LEGACY_PATH) || removeMarked(OPENCODE_TUI_LEGACY_PATH);
   for (const file of [OPENCODE_PLUGIN_PATH, OPENCODE_TUI_PATH]) {
     if (!existsSync(file)) continue;

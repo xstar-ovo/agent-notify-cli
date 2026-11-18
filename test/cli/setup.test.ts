@@ -189,6 +189,28 @@ test("setup keeps user config, and uninstall restores it exactly", async () => {
   }
 });
 
+test("a JSONC cli.json is left alone and the skipped registration is reported", async () => {
+  const b = box();
+  try {
+    seed(b);
+    const cliJson = path.join(b.home, ".config", "opencode", "cli.json");
+    const original = `{\n  // 我的注释\n  "plugins": ["other-plugin"],\n}\n`;
+    writeFileSync(cliJson, original);
+
+    const setup = await run(["setup", "--yes"], b);
+    assert.equal(setup.status, 0, setup.stderr);
+    assert.match(setup.stdout, /无法自动注册/); // 不能默默成功
+    assert.equal(readFileSync(cliJson, "utf8"), original, "不能改坏用户的 JSONC");
+
+    await run(["key", "abcd1234key"], b);
+    const doctor = await run(["doctor"], b);
+    assert.equal(doctor.status, 1, "插件没注册，doctor 不能报一切正常");
+    assert.match(doctor.stdout, /未注册/);
+  } finally {
+    rmSync(b.dir, { recursive: true, force: true });
+  }
+});
+
 test("setup refuses to touch an unparsable settings.json", async () => {
   const b = box();
   try {

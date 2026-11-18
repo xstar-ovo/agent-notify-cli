@@ -13,7 +13,7 @@ import { clamp, DEFAULT_DELAY_MS, EVENTS, SUMMARY_CHARS, type AgentNotifyConfig,
 import { sendNow } from "./notify/index.js";
 import { cancel, enqueue, listPending, pending, sendDue, sweepDue, wake, type PendingNotification } from "./notify/scheduler.js";
 import { CLAUDE_SETTINGS_PATH, claudeHooksPreview, claudeHooksStatus, detectClaude, removeClaudeHooks, writeClaudeHooks } from "./setup/claude.js";
-import { detectOpenCode, openCodePluginContent, openCodePluginStatus, openCodeTuiContent, OPENCODE_PLUGIN_ROOT, removeOpenCodePlugin, writeOpenCodePlugin } from "./setup/opencode.js";
+import { detectOpenCode, openCodePluginContent, openCodePluginStatus, openCodeTuiContent, OPENCODE_CLI_CONFIG_PATH, OPENCODE_CLI_PLUGIN, OPENCODE_PLUGIN_ROOT, removeOpenCodePlugin, writeOpenCodePlugin } from "./setup/opencode.js";
 import { detectPi, piExtensionContent, piExtensionStatus, PI_EXTENSION_PATH, removePiExtension, writePiExtension } from "./setup/pi.js";
 import { appendLog } from "./util/log.js";
 import { redact } from "./util/redact.js";
@@ -259,6 +259,7 @@ async function doctorCommand(config: AgentNotifyConfig, warnings: string[]): Pro
     if (status === "invalid") return row(name, `已接入，但 settings.json 解析失败`, false);
     if (status === "broken") return row(name, `已接入，但 hooks 指向已删除的安装路径（运行 an setup 或 an uninstall）`, false);
     if (status === "outdated") return row(name, `已接入，但写入的是旧版本（运行 an setup 更新）`);
+    if (status === "unregistered") return row(name, `插件已写入，但未注册（把 ${OPENCODE_CLI_PLUGIN} 加进 ${OPENCODE_CLI_CONFIG_PATH} 的 plugins）`, false);
     return row(name, `检测到 ${detected}，但未接入（运行 an setup）`);
   };
   agentRow("Claude Code", detectClaude(), claudeHooksStatus());
@@ -409,7 +410,15 @@ async function setupCommand(dryRun: boolean, yes: boolean, config: AgentNotifyCo
     }
   }
   if (pi) console.log(`\n${writePiExtension() === "written" ? "已写入" : "已是最新"} Pi 扩展`);
-  if (opencode) console.log(`${writeOpenCodePlugin() === "written" ? "已写入" : "已是最新"} OpenCode 插件`);
+  if (opencode) {
+    const result = writeOpenCodePlugin();
+    if (result === "unregistered") {
+      console.log("已写入 OpenCode 插件，但无法自动注册（cli.json 带注释/尾逗号或不是合法 JSON）");
+      console.log(`  请手动把 "${OPENCODE_CLI_PLUGIN}" 加进 ${OPENCODE_CLI_CONFIG_PATH} 的 plugins 数组，否则 OpenCode 不会加载`);
+    } else {
+      console.log(`${result === "written" ? "已写入" : "已是最新"} OpenCode 插件`);
+    }
+  }
   console.log("\n配置 Bark 凭据（持久化，重启后仍生效）");
   if (config.bark.deviceKey) {
     console.log(`  已配置：${maskKey(config.bark.deviceKey)}（更换：agent-notify key <你的BarkKey>）`);
