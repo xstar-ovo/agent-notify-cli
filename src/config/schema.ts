@@ -63,7 +63,7 @@ export function normalize(raw: unknown, warnings: string[] = []): AgentNotifyCon
       icon: str(barkRaw.icon, "") || undefined,
     },
     events,
-    timeoutMs: clamp(num(r.timeoutMs, 3000), 200, 30_000),
+    timeoutMs: clamp(num(r.timeoutMs, 10_000), 200, 30_000),
     delayMs,
     aggregateWindowMs: clamp(num(r.aggregateWindowMs, 5000), 0, 60_000),
     stateDir: str(r.stateDir, path.join(configDir, "state")),
@@ -85,7 +85,7 @@ export const DEFAULT_CONFIG_JSON = {
     error: { bark: true },
     settled: { bark: true },
   },
-  timeoutMs: 3000,
+  timeoutMs: 10_000,
   delayMs: {
     ...DEFAULT_DELAY_MS,
     max: MAX_DELAY_MS,

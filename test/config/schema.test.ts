@@ -12,7 +12,7 @@ test("defaults fill in documented delays and max", () => {
   assert.equal(c.delayMs.stop, DEFAULT_DELAY_MS.stop);
   assert.equal(c.delayMs.notification, 0);
   assert.equal(c.delayMs.max, MAX_DELAY_MS);
-  assert.equal(c.timeoutMs, 3000);
+  assert.equal(c.timeoutMs, 10_000);
   assert.equal(c.bark.enabled, true);
 });
 

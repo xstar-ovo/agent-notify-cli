@@ -42,7 +42,7 @@ key 直接写进配置文件，重启 / 关机后仍生效，不依赖环境变�
 {
   "bark": { "enabled": true, "endpoint": "https://api.day.app/{device_key}", "deviceKey": "{env:BARK_DEVICE_KEY}" },
   "events": { "stop": { "bark": true }, "notification": { "bark": true }, "error": { "bark": true }, "settled": { "bark": true } },
-  "timeoutMs": 3000,
+  "timeoutMs": 10000,
   "delayMs": { "stop": 300000, "settled": 300000, "error": 0, "notification": 0, "max": 600000 },
   "aggregateWindowMs": 5000
 }
