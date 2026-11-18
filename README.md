@@ -146,8 +146,9 @@ agent-notify notify settled --message "改了 3 个文件。" --icon https://exa
 - 单次覆盖：`--delay <秒>`，`0` = 立即；超过 `delayMs.max`（默认 600000，可调，上限 1800000）会被截断。
 - 同一 session 在延迟期内再次触发会**覆盖**上一条，任务重新开始就不会误报完成。
 - `agent-notify cancel --session <id>` 撤销；`agent_start` 等钩子会自动撤销。
-- 多条同时到期聚合成一条（`aggregateWindowMs`，默认 5 秒），不刷屏。
-- 待发通知落盘在 `~/.config/agent-notify/state/pending/*.json`，每条一个独立 waker 子进程；Hook 主进程从不 sleep，1 秒内返回。
+- 多条同时到期聚合成一条（`aggregateWindowMs`，默认 5 秒），不刷屏；正文是「另有 N 个任务，第一条的首句」。
+- 发送失败不丢：记录留在盘上，30 秒后重试，连续失败 3 次才放弃（`error.log` 里有 `all channels failed`）。
+- 待发通知落盘在 `~/.config/agent-notify/state/pending/*.json`，每个会话一个 waker 子进程（同一会话的多条记录共用一个，按最新到期时间等）；Hook 主进程从不 sleep，1 秒内返回。
 - 取舍：关机 / 休眠会杀掉 waker，待发通知在下次任何事件、`flush` 或下次打开会话时补发（可能迟到）。
 
 ## 命令

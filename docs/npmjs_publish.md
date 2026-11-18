@@ -20,7 +20,7 @@
 
 ```powershell
 npm install                 # 装依赖 + 触发 prepare 构建
-npm test                    # 71 个用例应全绿
+npm test                    # 全部用例应全绿
 npm pack --dry-run          # 看 tarball 内容，确认只有 dist/bin/README/LICENSE/package.json
 node bin/agent-notify.js --help
 ```
@@ -63,8 +63,11 @@ npx agent-notify-cli --help
 ### 发版三步
 
 ```powershell
-npm test                                             # 1. 保险：71/71 全绿
-npm version minor -m "chore(release): v%s"            # 2. 升版本（0.x 破坏性变更用 minor），自动 build + commit + 打 tag
+npm test                                             # 1. 保险：全部用例全绿
+
+npm version minor -m "chore(release): v%s"              # 2a. 破坏性变更：升版本，自动 build + commit + 打 tag
+npm version patch -m "chore(release): v%s"              # 2b. 修 bug / 小改动：二选一，自动 build + commit + 打 tag
+
 git push origin main --follow-tags                    # 3. 推 commit 和 tag，CI 自动发布
 ```
 
