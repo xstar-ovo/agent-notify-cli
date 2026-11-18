@@ -7,7 +7,7 @@
 ## 安装
 
 ```bash
-npm i -g agent-notify-cli   # 命令名仍是 agent-notify
+npm i -g agent-notify-cli
 ```
 
 或者从源码装（开发用）：
@@ -19,7 +19,7 @@ npm install        # 会顺带 tsc 编译（prepare 脚本）
 npm link           # 之后任意目录可用 an 或 agent-notify
 ```
 
-两个名字等价（同一份 bin），下文统一写 `agent-notify`，敲 `an` 效果一样。
+两个名字等价（同一份 bin），下文统一写 `agent-notify`，与 `an` 效果一样。
 
 要求 Node ≥ 20：只用内置 `fetch`，无运行时依赖。
 
@@ -201,6 +201,12 @@ npm uninstall -g agent-notify-cli
 
 CLI 已经删掉的话用 `npx -y agent-notify-cli uninstall` 兜底。`npm uninstall` 本身不会清理任何写入项。配置目录 `~/.config/agent-notify/`（含 Bark key、待发通知）不会删除，重装后还能用。
 
+## 升级
+
+升级只替换程序文件，`config.json`、Bark key、待发通知一律不动；`an setup` 只在配置文件缺失时才创建，已存在只会提示“已存在，不修改”。
+
+新版本不再读的字段会被忽略，并在 `an status` / `an doctor` 里报 `config has unknown keys: …`——不会自动删除，你自己删那一行就行。真要改名字段时，由那个版本写迁移代码显式搬迁，不靠“清理未知键”这种通用手段处理用户数据。
+
 ## 自检与排障
 
 ```bash
@@ -226,13 +232,18 @@ agent-notify notify stop --delay 0 --message "手动测试"   # 2) 整条链路�
 ```bash
 npm run build   # tsc -p tsconfig.json      → dist/
 npm test        # tsc -p tsconfig.test.json → dist-test/ 然后跑 node --test
+npm run test:coverage  # 同上 + 覆盖率，行/分支/函数低于 90/65/90 直接失败（CI 跑的就是它）
 ```
+
+两类测试：单元测试直接 `import` 被测模块；`test/cli/` 是 e2e，真的 `spawn` `dist-test/src/cli.js`，并通过 `HOME`/`USERPROFILE`/`AGENT_NOTIFY_CONFIG_DIR` 把用户目录和配置指向 `mkdtemp` 出来的临时目录，不会碰真实 `~/.claude`、`~/.pi`、`~/.config`。
+
+需要真实配置路径的测试（`util/log.test.ts`、`util/update.test.ts`）必须**第一行** import `test/helpers/tmp-config.js`——`config/setup` 的路径常量在 import 时求值，晚一步就指向真实 home。
 
 新增测试放 `test/<同样的子目录>/xxx.test.ts`，用 `../../src/...` 引用被测模块。
 
 测试里需要 Bark key 的地方读 `test/helpers/env.ts` 的 `testBarkKey()`：优先 `.env`（复制 `.env.example` 后填 `BARK_TEST_KEY`，已被 git 忽略）或环境变量，都没有就用内置假 key，不会真的推送。
 
-工具链：Node 24（`>=20` 即可跑）、TypeScript 6.0.3。注意 TS 6 不再自动加载 `@types`，`tsconfig.json` 必须保留 `"types": ["node"]`，否则全量报 `Cannot find name 'process'`。
+工具链（仅开发/CI，运行时只要求 Node ≥ 20）：Node ≥ 22，因为 `test:coverage` 用到 22.8+ 的 `--test-coverage-*`、CI 跑 22 与 24；TypeScript 6.0.3。注意 TS 6 不再自动加载 `@types`，`tsconfig.json` 必须保留 `"types": ["node"]`，否则全量报 `Cannot find name 'process'`。
 
 > 为什么不用 TypeScript 7：7 是原生 Go 版，`node_modules/typescript/lib/` 只剩 5 个 shim 文件，没有 `lib.*.d.ts`、也没有 `tsserver.js`；编辑器拿它做语言服务会满屏 `Cannot find global type 'Array'` / `Cannot find name 'JSON'`。命令行 `tsc` 能用，但为了编辑器，锁 6.0.3。
 
