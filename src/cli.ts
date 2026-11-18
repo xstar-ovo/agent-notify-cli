@@ -4,7 +4,7 @@
 
 import { existsSync } from "node:fs";
 import path from "node:path";
-import { createInterface } from "node:readline/promises";
+import { createInterface, type Interface } from "node:readline/promises";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
 import { ensureConfigFile, loadConfig, parseBarkKeyInput, saveDeviceKey } from "./config/loader.js";
@@ -29,6 +29,7 @@ const HELP = `an / agent-notify — unified agent notifications
   an flush
 
 管理
+  an            （终端里）交互菜单，数字选择
   an setup [--dry-run] [--yes]
   an uninstall
   an key <bark-key>
@@ -39,6 +40,47 @@ const HELP = `an / agent-notify — unified agent notifications
   an doctor
 
 Config: ${configPath} (bark endpoint + {env:BARK_DEVICE_KEY})`;
+
+const MENU = `an — agent-notify
+
+  1. 写入 Bark key
+  2. 查看状态
+  3. 发送测试通知
+  4. 安装 / 修复集成
+  5. 体检诊断
+  6. 卸载集成
+  7. 手动触发通知（notify）
+  8. 立即发送待发通知（flush）
+  9. 取消待发通知（cancel）
+  0. 退出菜单`;
+
+/**
+ * 逐行输入源。必须共用一个实例：管道喂多行时，反复 createInterface/close 会丢掉已缓冲的下一行，
+ * 而连续调 rl.question 同样会漏行（第二行在第一次 question 注册前就已经被读完）。
+ * 放在最上面：run() 在模块求值时就会执行，class 在下面会撞上 TDZ。
+ */
+class Lines {
+  private readonly rl: Interface;
+  private readonly it: AsyncIterator<string>;
+  constructor() {
+    // terminal: false：不接管回显与方向键，TTY 与管道行为一致。
+    this.rl = createInterface({ input: process.stdin, output: process.stdout, terminal: false });
+    this.it = this.rl[Symbol.asyncIterator]();
+  }
+  /** 写提示并等一行；流结束（管道喂完 / Ctrl+D）返回 undefined。 */
+  async ask(prompt: string): Promise<string | undefined> {
+    process.stdout.write(prompt);
+    const { value, done } = await this.it.next();
+    if (done) {
+      process.stdout.write("\n");
+      return undefined;
+    }
+    return value;
+  }
+  close(): void {
+    this.rl.close();
+  }
+}
 
 const str = (v: unknown): string | undefined => (typeof v === "string" ? v : undefined);
 
@@ -93,9 +135,18 @@ async function run(): Promise<number> {
 
   const { config, warnings } = loadConfig();
 
-  if (values.help || !cmd) {
+  if (values.help) {
     console.log(HELP);
     return 0;
+  }
+
+  // 裸 `an`：终端里给数字菜单；管道/CI 仍打印原 help，不阻塞、不变退出码。
+  if (!cmd) {
+    if (!process.stdin.isTTY) {
+      console.log(HELP);
+      return 0;
+    }
+    return await menuCommand();
   }
 
   switch (cmd) {
@@ -116,6 +167,8 @@ async function run(): Promise<number> {
       return statuslineCommand(config);
     case "key":
       return keyCommand(positionals[1]);
+    case "menu":
+      return await menuCommand();
     case "setup":
       return setupCommand(Boolean(values["dry-run"]), Boolean(values.yes), config);
     case "uninstall":
@@ -334,13 +387,81 @@ async function testCommand(config: AgentNotifyConfig, warnings: string[]): Promi
   }
 }
 
+/** 数字菜单：终端里裸跑 `an` 进入；`an menu` 也能用（可管道喂数字，便于测试）。 */
+async function menuCommand(): Promise<number> {
+  const lines = new Lines();
+  try {
+    for (;;) {
+      const { config, warnings } = loadConfig();
+      const key = config.bark.deviceKey;
+      const bark = !config.bark.enabled
+        ? "已停用（config.bark.enabled = false）"
+        : key ? `已配置 ${maskKey(key)}` : "未配置 key";
+      console.log(`${MENU}\n`);
+      console.log(`Bark：${bark}\n配置：${configPath}\n`);
+
+      const answer = await lines.ask("选择命令对应的数字： ");
+      if (answer === undefined) return 0;
+      switch (answer.trim()) {
+        case "1": {
+          const k = await promptBarkKey(lines);
+          if (k) await keyCommand(k);
+          else console.log("未输入 key，已跳过。");
+          break;
+        }
+        case "2":
+          await statusCommand(config, warnings);
+          break;
+        case "3":
+          await testCommand(config, warnings);
+          break;
+        case "4":
+          await setupCommand(false, false, config, lines);
+          break;
+        case "5":
+          await doctorCommand(config, warnings);
+          break;
+        case "6":
+          uninstallCommand();
+          break;
+        case "7": {
+          // 和 notify 子命令等价：回车用 stop，走默认延迟。
+          const ev = (await lines.ask(`事件（${EVENTS.join(" / ")}，回车 = stop）: `))?.trim();
+          await notifyCommand(ev || "stop", {}, config);
+          if ((ev || "stop") === "stop") console.log(`已入队，${config.delayMs.stop / 60_000} 分钟后通知。`);
+          break;
+        }
+        case "8": {
+          const sent = await sendDue(config, 0);
+          console.log(sent > 0 ? `已发送 ${sent} 条待发通知。` : "没有已到期的待发通知。");
+          break;
+        }
+        case "9": {
+          const session = (await lines.ask("要取消的 session（回车 = default）: "))?.trim() || "default";
+          await cancelCommand({ session }, config);
+          console.log(`已取消 ${session} 的待发通知。`);
+          break;
+        }
+        case "0":
+        case "q":
+          return 0;
+        default:
+          console.log("没有这个选项。");
+      }
+      console.log("---");
+    }
+  } finally {
+    lines.close();
+  }
+}
+
 /** 交互式收集 Bark key；非 TTY（脚本 / CI）直接跳过，不阻塞。 */
-async function promptBarkKey(): Promise<string | undefined> {
+async function promptBarkKey(lines?: Lines): Promise<string | undefined> {
   if (!process.stdin.isTTY) return undefined;
-  const rl = createInterface({ input: process.stdin, output: process.stdout });
-  const answer = await rl.question("\n请粘贴 Bark key（Bark App 首页那一串，直接回车跳过）: ");
-  rl.close();
-  return parseBarkKeyInput(answer) || undefined;
+  const own = lines ?? new Lines();
+  const answer = await own.ask("\n请粘贴 Bark key（Bark App 首页那一串，直接回车跳过）: ");
+  if (!lines) own.close();
+  return parseBarkKeyInput(answer ?? "") || undefined;
 }
 
 function uninstallCommand(): number {
@@ -355,7 +476,7 @@ function uninstallCommand(): number {
   return 0;
 }
 
-async function setupCommand(dryRun: boolean, yes: boolean, config: AgentNotifyConfig): Promise<number> {
+async function setupCommand(dryRun: boolean, yes: boolean, config: AgentNotifyConfig, lines?: Lines): Promise<number> {
   const claude = detectClaude();
   const pi = detectPi();
   const opencode = detectOpenCode();
@@ -388,9 +509,9 @@ async function setupCommand(dryRun: boolean, yes: boolean, config: AgentNotifyCo
       console.log("\n非交互环境，请加 --yes 确认写入。");
       return 0;
     }
-    const rl = createInterface({ input: process.stdin, output: process.stdout });
-    const answer = await rl.question("\n确认写入？(y/N): ");
-    rl.close();
+    const own = lines ?? new Lines();
+    const answer = (await own.ask("\n确认写入？(y/N): ")) ?? "";
+    if (!lines) own.close();
     if (!/^y(es)?$/i.test(answer.trim())) {
       console.log("已取消。");
       return 0;
@@ -423,7 +544,7 @@ async function setupCommand(dryRun: boolean, yes: boolean, config: AgentNotifyCo
   if (config.bark.deviceKey) {
     console.log(`  已配置：${maskKey(config.bark.deviceKey)}（更换：agent-notify key <你的BarkKey>）`);
   } else {
-    const pasted = await promptBarkKey();
+    const pasted = await promptBarkKey(lines);
     if (!pasted) {
       console.log("  未写入 Bark key。稍后运行 agent-notify key <你的BarkKey>");
     } else {

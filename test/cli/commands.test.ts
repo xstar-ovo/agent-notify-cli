@@ -281,3 +281,39 @@ test("setup --dry-run previews hooks without touching settings.json", async () =
     rmSync(b.dir, { recursive: true, force: true });
   }
 });
+
+test("an menu 数字选择：报错项、执行命令、0 退出、EOF 不挂住", async () => {
+  const b = box();
+  try {
+    const menu = await run(["menu"], b, "77\n0\n");
+    assert.equal(menu.status, 0, menu.stderr);
+    assert.match(menu.stdout, /1\. 写入 Bark key/);
+    assert.match(menu.stdout, /Bark：未配置 key/);
+    assert.match(menu.stdout, /没有这个选项。/);
+
+    const status = await run(["menu"], b, "2\n0\n");
+    assert.equal(status.status, 0, status.stderr);
+    assert.match(status.stdout, /待发：/);
+
+    // 管道喂完没有 0：必须自己退出，不能卡在 question 上。
+    const eof = await run(["menu"], b, "2\n");
+    assert.equal(eof.status, 0, eof.stderr);
+
+    // 7/8/9 覆盖 notify / flush / cancel。
+    const rest = await run(["menu"], b, "7\nstop\n8\n9\ndefault\n0\n");
+    assert.equal(rest.status, 0, rest.stderr);
+    assert.match(rest.stdout, /已入队，5 分钟后通知。/);
+    assert.match(rest.stdout, /没有已到期的待发通知。/);
+    assert.match(rest.stdout, /已取消 default 的待发通知。/);
+  } finally {
+    rmSync(b.dir, { recursive: true, force: true });
+  }
+});
+
+test("setup 在菜单里复用同一个 readline 实例，不另开一个抢 stdin", () => {
+  // 静态护栏：两个 Lines 同时读 process.stdin 会把输入行路由错（key 被吞 / 菜单误读一行）。
+  // 真正的路由只能靠真 TTY 验证，node:test 里造不出来，所以只锁调用点：setup 必须把共享实例传下去。
+  const src = readFileSync(path.join(process.cwd(), "src", "cli.ts"), "utf8");
+  assert.match(src, /await promptBarkKey\(lines\)/);
+  assert.doesNotMatch(src, /await promptBarkKey\(\)/);
+});

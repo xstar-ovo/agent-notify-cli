@@ -165,6 +165,7 @@ agent-notify notify settled --message "改了 3 个文件。" --icon https://exa
 
 | 命令 | 说明 |
 |---|---|
+| `agent-notify`（不带参数，终端里） | 交互菜单，覆盖下面全部管理/诊断命令：写入 key、查看状态、测试通知、手动触发、立即发送、取消待发、安装修复、体检、卸载，`0` 退出 |
 | `agent-notify setup [--dry-run] [--yes]` | 写入检测到的 Claude Code hooks、Pi 扩展和 OpenCode 插件；交互运行时还会提示粘贴 Bark key |
 | `agent-notify uninstall` | 移除本工具写入的 hooks / 扩展 / 插件，并恢复原状态栏 |
 | `agent-notify key <bark-key>` | 把 Bark key 写入配置文件（持久化） |
