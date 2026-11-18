@@ -116,6 +116,11 @@ test("key writes the bark key and refuses bad input", async () => {
     assert.equal(raw.bark.deviceKey, "abc123XYZ");
     assert.equal(raw.bark.enabled, true);
 
+    // 用户关掉的 Bark 不能被换 key 顺手打开
+    writeFileSync(b.config, JSON.stringify({ bark: { enabled: false } }));
+    assert.equal((await run(["key", "second0key"], b)).status, 0);
+    assert.equal(JSON.parse(readFileSync(b.config, "utf8")).bark.enabled, false);
+
     const missing = await run(["key"], b);
     assert.equal(missing.status, 1);
     assert.match(missing.stdout, /用法/);
