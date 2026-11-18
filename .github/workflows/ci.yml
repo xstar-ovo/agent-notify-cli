@@ -12,14 +12,19 @@ concurrency:
 jobs:
   test:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node-version: [22, 24]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 24
+          node-version: ${{ matrix.node-version }}
           cache: npm
       - run: npm ci
-      - run: npm test
+      # 带覆盖率门槛：低于阈值 CI 直接红，防止测试悄悄变少
+      - run: npm run test:coverage
 
   publish:
     needs: test

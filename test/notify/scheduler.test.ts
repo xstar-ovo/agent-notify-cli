@@ -4,9 +4,10 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, readdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readdirSync, readFileSync, utimesSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { tmpRoot } from "../helpers/tmp-config.js"; // 必须在 src 之前：log.ts 在 import 时取 configDir
 import { normalize } from "../../src/config/schema.js";
 import { cancel, enqueue, recordPath, sendDue, wake, type PendingNotification } from "../../src/notify/scheduler.js";
 import type { NotifyRecord } from "../../src/notify/templates.js";
@@ -104,4 +105,45 @@ test("a fresh lock blocks claiming (no duplicate send)", async () => {
 
   assert.equal(await sendDue(cfg, 0, async (r) => void sent.push(r)), 0);
   assert.equal(sent.length, 0);
+});
+
+test("a stale lock from a killed process is reclaimed", async () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), "an-"));
+  const cfg = cfgFor(dir);
+  enqueue(rec("stale", Date.now() - 1), cfg);
+  const lock = path.join(dir, "pending", "stale.lock");
+  writeFileSync(lock, "");
+  const old = new Date(Date.now() - 5 * 60_000);
+  utimesSync(lock, old, old);
+  const sent: NotifyRecord[] = [];
+
+  assert.equal(await sendDue(cfg, 0, async (r) => void sent.push(r)), 1);
+  assert.equal(sent.length, 1, "否则崩溃一次后这条通知永远发不出去");
+  assert.equal(existsSync(recordPath(dir, "stale")), false);
+});
+
+test("send failure is logged and the record is not retried forever", async () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), "an-"));
+  const cfg = cfgFor(dir);
+  enqueue(rec("fail", Date.now() - 1), cfg);
+
+  assert.equal(
+    await sendDue(cfg, 0, async () => {
+      throw new Error("offline");
+    }),
+    1,
+  );
+  assert.equal(existsSync(recordPath(dir, "fail")), false);
+  assert.match(readFileSync(path.join(tmpRoot, "error.log"), "utf8"), /all channels failed/);
+});
+
+test("wake sleeps until the record is due", async () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), "an-"));
+  const cfg = cfgFor(dir);
+  enqueue(rec("sleepy", Date.now() + 80), cfg);
+  const started = Date.now();
+
+  await wake("sleepy", cfg);
+  assert.ok(Date.now() - started >= 60, "必须真的等到到期");
+  assert.equal(existsSync(recordPath(dir, "sleepy")), false);
 });

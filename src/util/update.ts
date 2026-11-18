@@ -13,10 +13,10 @@ const TTL_MS = 24 * 60 * 60 * 1000;
 const cacheFile = path.join(configDir, "update-check.json");
 
 /** 返回比当前版本新的最新版本号；已是最新、离线、超时都返回 undefined。 */
-export async function checkUpdate(current = ownVersion()): Promise<string | undefined> {
+export async function checkUpdate(current = ownVersion(), registry = REGISTRY): Promise<string | undefined> {
   let latest = readCache();
   if (!latest) {
-    latest = await fetchLatest();
+    latest = await fetchLatest(registry);
     if (latest) writeCache(latest);
   }
   return latest && isNewer(latest, current) ? latest : undefined;
@@ -52,9 +52,9 @@ function writeCache(latest: string): void {
   }
 }
 
-async function fetchLatest(): Promise<string | undefined> {
+async function fetchLatest(registry: string): Promise<string | undefined> {
   try {
-    const res = await fetch(REGISTRY, { signal: AbortSignal.timeout(1500) });
+    const res = await fetch(registry, { signal: AbortSignal.timeout(1500) });
     if (!res.ok) return undefined;
     const version = ((await res.json()) as { version?: unknown }).version;
     return typeof version === "string" ? version : undefined;
