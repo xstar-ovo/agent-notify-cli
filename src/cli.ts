@@ -11,7 +11,7 @@ import { ensureConfigFile, loadConfig, parseBarkKeyInput, saveDeviceKey } from "
 import { configPath } from "./config/paths.js";
 import { clamp, DEFAULT_DELAY_MS, EVENTS, SUMMARY_CHARS, type AgentNotifyConfig, type NotifyEvent } from "./config/schema.js";
 import { sendNow } from "./notify/index.js";
-import { cancel, enqueue, listPending, pending, sendDue, sweepDue, wake, type PendingNotification } from "./notify/scheduler.js";
+import { cancel, enqueue, listPending, pending, sendDue, superseded, sweepDue, wake, type PendingNotification } from "./notify/scheduler.js";
 import { CLAUDE_SETTINGS_PATH, claudeHooksPreview, claudeHooksStatus, detectClaude, removeClaudeHooks, writeClaudeHooks } from "./setup/claude.js";
 import { detectOpenCode, openCodePluginContent, openCodePluginStatus, openCodeTuiContent, OPENCODE_CLI_CONFIG_PATH, OPENCODE_CLI_PLUGIN, OPENCODE_PLUGIN_ROOT, removeOpenCodePlugin, writeOpenCodePlugin } from "./setup/opencode.js";
 import { detectPi, piExtensionContent, piExtensionStatus, PI_EXTENSION_PATH, removePiExtension, writePiExtension } from "./setup/pi.js";
@@ -84,6 +84,12 @@ class Lines {
 
 const str = (v: unknown): string | undefined => (typeof v === "string" ? v : undefined);
 
+/** 请求发出的时刻。扩展 spawn 进程会晚几毫秒，统一按请求时刻排队才能让 /ack 稳赢乱序的 notify。 */
+function requestAt(values: Record<string, string | boolean | undefined>): number {
+  const at = Number(values.at);
+  return Number.isFinite(at) && at > 0 ? at : Date.now();
+}
+
 function hookMessage(stdin: Record<string, any> | undefined): string | undefined {
   const raw = typeof stdin?.message === "string"
     ? stdin.message
@@ -115,6 +121,7 @@ async function run(): Promise<number> {
       icon: { type: "string" },
       delay: { type: "string" },
       session: { type: "string" },
+      at: { type: "string" },
       agent: { type: "string" },
       "stdin-json": { type: "boolean" },
       quiet: { type: "boolean" },
@@ -196,7 +203,7 @@ async function cancelCommand(
     appendLog("level=warn msg=\"cancel without session\"");
     return 0;
   }
-  cancel(config, session);
+  cancel(config, session, requestAt(values));
   const prompt = typeof stdin?.prompt === "string" ? stdin.prompt.trim() : "";
   if (/^\/ack(?:\s|$)/.test(prompt)) {
     // UserPromptSubmit hook：拦下 /ack，别让 Claude 再生成一轮回复
@@ -231,7 +238,7 @@ async function notifyCommand(
   const seconds = values.delay !== undefined ? Number(values.delay) : config.delayMs[event] / 1000;
   const delayMs = clamp(Math.round((Number.isFinite(seconds) ? seconds : 0) * 1000), 0, config.delayMs.max);
 
-  const now = Date.now();
+  const createdAt = requestAt(values);
   const rec: PendingNotification = {
     session,
     event,
@@ -239,15 +246,18 @@ async function notifyCommand(
     cwd: typeof stdin?.cwd === "string" ? stdin.cwd : process.cwd(),
     message: str(values.message) ?? hookMessage(stdin),
     icon: str(values.icon),
-    createdAt: now,
-    dueAt: now + delayMs,
+    createdAt,
+    dueAt: Date.now() + delayMs,
   };
 
   if (delayMs > 0) {
     enqueue(rec, config);
   } else {
-    cancel(config, session); // 立即通知时清掉同会话的旧待发记录，避免两条都到
-    await sendNow(rec, config).catch(() => undefined);
+    cancel(config, session, createdAt); // 立即通知时清掉同会话更旧的待发记录，避免两条都到
+    // 取消请求或排队记录比这条新：已经过期，别再推。晚到的旧 notify 短暂落盘不算。
+    if (!superseded(config, session, createdAt)) {
+      await sendNow(rec, config).catch(() => undefined);
+    }
   }
   return 0;
 }

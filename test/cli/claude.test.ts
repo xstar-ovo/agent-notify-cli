@@ -62,7 +62,8 @@ test("claude stdin supplies session, message and cancel target", () => {
     const cancelled = run(["cancel", "--agent", "claude", "--stdin-json"], cancel, env);
     assert.equal(cancelled.status, 0, cancelled.stderr);
     assert.equal(cancelled.stdout.trim(), "");
-    assert.deepEqual(readdirSync(pending), []);
+    // 取消墓碑会留下（防止晚到的 notify 复活记录），但不该再有通知记录
+    assert.deepEqual(readdirSync(pending).filter((f) => f.endsWith(".json")), []);
 
     const again = run(["notify", "stop", "--agent", "claude", "--delay", "5", "--stdin-json"], payload, env);
     assert.equal(again.status, 0, again.stderr);
@@ -73,7 +74,8 @@ test("claude stdin supplies session, message and cancel target", () => {
     }), env);
     assert.equal(ack.status, 0, ack.stderr);
     assert.equal(JSON.parse(ack.stdout).decision, "block");
-    assert.deepEqual(readdirSync(pending), []);
+    // 取消墓碑会留下（防止晚到的 notify 复活记录），但不该再有通知记录
+    assert.deepEqual(readdirSync(pending).filter((f) => f.endsWith(".json")), []);
 
     const empty = run(["_statusline"], JSON.stringify({ session_id: "claude-test" }), env);
     assert.equal(empty.stdout.trim(), "");

@@ -47,6 +47,10 @@ function wakerPath(stateDir: string, session: string): string {
   return path.join(pendingDir(stateDir), `${keyOf(session)}.waker`);
 }
 
+function cancelPath(stateDir: string, session: string): string {
+  return path.join(pendingDir(stateDir), `${keyOf(session)}.cancel`);
+}
+
 interface WakerMark {
   pid: number;
   at: number;
@@ -76,20 +80,47 @@ function spawnWaker(rec: PendingNotification, cfg: AgentNotifyConfig, force = fa
   if (child) atomicWriteText(marker, JSON.stringify({ pid: child, at: Date.now() } satisfies WakerMark));
 }
 
+/** 该会话是否在 `at` 之后被取消过（/ack 或新任务）。 */
+export function cancelledAfter(stateDir: string, session: string, at: number): boolean {
+  const tomb = readJson<number>(cancelPath(stateDir, session));
+  return typeof tomb === "number" && tomb > at;
+}
+
 /** 写入（或覆盖）待发记录，并确保有一个唤醒进程在等它。 */
 export function enqueue(rec: PendingNotification, cfg: AgentNotifyConfig, forceWake = false): void {
+  // shortcut: 同毫秒内 notify 会压过 cancel，靠人工操作间隔避开；要严格顺序需换单调序号。
+  if (cancelledAfter(cfg.stateDir, rec.session, rec.createdAt)) return; // 取消比这条通知新：晚到的 notify 不能把它复活
   mkdirSync(pendingDir(cfg.stateDir), { recursive: true, mode: 0o700 });
   atomicWriteText(recordPath(cfg.stateDir, rec.session), JSON.stringify(rec));
+  // 写完再确认：cancel 可能正好落在上面的检查和这次写之间，不然记录会绕过墓碑活下来
+  if (cancelledAfter(cfg.stateDir, rec.session, rec.createdAt)) {
+    rmSync(recordPath(cfg.stateDir, rec.session), { force: true });
+    return;
+  }
   spawnWaker(rec, cfg, forceWake);
 }
 
-export function cancel(cfg: AgentNotifyConfig, session: string): void {
-  // 只删记录和唤醒标记，不删别人正在持有的锁；否则并发的 sendDue 会重新认领旧记录。
-  for (const file of [recordPath(cfg.stateDir, session), wakerPath(cfg.stateDir, session)]) {
-    try {
-      rmSync(file, { force: true });
-    } catch {
-      /* 忽略 */
+export function cancel(cfg: AgentNotifyConfig, session: string, at = Date.now()): void {
+  // 墓碑记下取消时刻：notify/cancel 各是一条独立子进程，可能乱序执行。晚到的 notify
+  // 拿自己的请求时刻 (--at) 比对，发现比墓碑早就不再落记录。
+  try {
+    mkdirSync(pendingDir(cfg.stateDir), { recursive: true, mode: 0o700 });
+    const prev = readJson<number>(cancelPath(cfg.stateDir, session));
+    const stamp = typeof prev === "number" && prev > at ? prev : at; // 只增不减，旧的 cancel 不能覆盖新的
+    atomicWriteText(cancelPath(cfg.stateDir, session), String(stamp));
+  } catch {
+    /* 墓碑写不进去也不能耽误取消 */
+  }
+  // 只删不比这次取消新的记录：进程乱序时，晚到的旧 cancel 不能把新通知删掉。
+  // 锁不删：否则并发的 sendDue 会重新认领旧记录。
+  const rec = readJson<PendingNotification>(recordPath(cfg.stateDir, session));
+  if (!(rec && rec.createdAt > at)) {
+    for (const file of [recordPath(cfg.stateDir, session), wakerPath(cfg.stateDir, session)]) {
+      try {
+        rmSync(file, { force: true });
+      } catch {
+        /* 忽略 */
+      }
     }
   }
 }
@@ -97,6 +128,19 @@ export function cancel(cfg: AgentNotifyConfig, session: string): void {
 /** 只读待发记录，给状态栏/诊断用；不认领、不删除。 */
 export function pending(cfg: AgentNotifyConfig, session: string): PendingNotification | undefined {
   return readJson<PendingNotification>(recordPath(cfg.stateDir, session));
+}
+
+/** 立即通知是否已被更新的 /ack 或排队记录取代；晚到的旧记录不算。 */
+export function superseded(cfg: AgentNotifyConfig, session: string, at: number): boolean {
+  if (cancelledAfter(cfg.stateDir, session, at)) return true;
+  const queued = pending(cfg, session);
+  return Boolean(queued && queued.createdAt > at);
+}
+
+/** 认领之后记录是否还在（没被 /ack 删掉、也没被同会话的新通知替换）。 */
+export function stillLive(stateDir: string, rec: PendingNotification): boolean {
+  const cur = readJson<PendingNotification>(recordPath(stateDir, rec.session));
+  return Boolean(cur && cur.createdAt === rec.createdAt);
 }
 
 /** 所有会话的待发记录（只读），按到期时间排序。 */
@@ -194,8 +238,22 @@ export async function sendDue(
       }
       claimed.push(current);
     }
-    if (claimed.length === 0) continue;
-    const merged = claimed.length === 1 ? claimed[0]! : mergeAggregate(claimed);
+    // 认领到真正发之间可能正好按了 /ack：再确认一次，别拿旧快照去发。
+    // 同时看墓碑：cancel 删记录失败（如 Windows 文件占用）留下的残记录也不能发。
+    const live = claimed.filter((rec) => {
+      if (!stillLive(cfg.stateDir, rec)) {
+        removeLock(cfg.stateDir, rec.session); // 认领后被 cancel 删除或被新通知替换
+        return false;
+      }
+      if (cancelledAfter(cfg.stateDir, rec.session, rec.createdAt)) {
+        // 已作废的残记录直接清掉（记录、锁、waker 标记一起），别让 sweep 反复拉 flush
+        cleanup(cfg.stateDir, rec.session);
+        return false;
+      }
+      return true;
+    });
+    if (live.length === 0) continue;
+    const merged = live.length === 1 ? live[0]! : mergeAggregate(live);
     let failed = false;
     try {
       await sender({ ...merged, event }, cfg);
@@ -203,9 +261,17 @@ export async function sendDue(
       failed = true;
       appendLog(`level=error event=${event} msg="all channels failed"`);
     }
-    for (const rec of claimed) {
+    for (const rec of live) {
       if (!failed) {
-        cleanup(cfg.stateDir, rec.session);
+        // 发送途中同会话可能写入了新通知：只清自己那份，别把新的删了。
+        const cur = pending(cfg, rec.session);
+        if (cur && cur.createdAt === rec.createdAt) {
+          cleanup(cfg.stateDir, rec.session);
+        } else {
+          removeLock(cfg.stateDir, rec.session);
+          // 新记录的 enqueue 可能复用了当前这个即将退出的 waker：强制补一个，别让它没人等
+          if (cur) spawnWaker(cur, cfg, true);
+        }
         continue;
       }
       // 发送途中被 cancel（/ack、新任务），或同会话已写入新通知：不能用旧快照复活/覆盖，锁也要解开。
@@ -224,7 +290,7 @@ export async function sendDue(
       // force：标记里是当前这个正要退出的 waker 的 pid，不去重就会留下没人等的记录。
       enqueue({ ...rec, retries, dueAt: Date.now() + RETRY_MS }, cfg, true);
     }
-    sent += claimed.length;
+    sent += live.length;
   }
   return sent;
 }
@@ -252,9 +318,15 @@ export async function wake(sessionKey: string, cfg: AgentNotifyConfig): Promise<
       return;
     }
   } finally {
-    // 只删自己的标记：重试已经换成了新的 waker，删掉它就没人等这条记录了。
+    // 只动自己的标记：重试已经换成了新的 waker，删掉它就没人等这条记录了。
     const marker = wakerPath(cfg.stateDir, sessionKey);
-    if (readJson<WakerMark>(marker)?.pid === process.pid) rmSync(marker, { force: true });
+    if (readJson<WakerMark>(marker)?.pid === process.pid) {
+      rmSync(marker, { force: true });
+      // 先删标记再看记录：并发的 enqueue 要么看到标记已删、自己拉 waker，要么复用本 waker
+      // 但记录已落盘、这里能看到。sendDue 的替换/失败分支不补 waker 时，靠这里接力。
+      const rec = readJson<PendingNotification>(recordPath(cfg.stateDir, sessionKey));
+      if (rec) spawnWaker(rec, cfg);
+    }
   }
 }
 

@@ -5,7 +5,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import os from "node:os";
 import path from "node:path";
@@ -247,6 +247,76 @@ test("flush sends due records only, and _wake drains a due record", async () => 
     const wake = await run(["_wake", "due"], b);
     assert.equal(wake.status, 0, wake.stderr);
     assert.throws(() => readFileSync(path.join(b.state, "pending", "due.json")));
+  } finally {
+    rmSync(b.dir, { recursive: true, force: true });
+  }
+});
+
+test("乱序落地的 notify 不能复活已被 /ack 取消的通知", async () => {
+  const b = box({ bark: { enabled: false } });
+  try {
+    // cancel 请求 (2000) 比 notify 请求 (1000) 新，即使 notify 进程晚跑完也不能写记录。
+    await run(["cancel", "--session", "race", "--at", "2000"], b);
+    await run(["notify", "settled", "--session", "race", "--at", "1000"], b);
+    assert.equal(existsSync(path.join(b.state, "pending", "race.json")), false);
+
+    // 反过来，更新的 notify 必须照常写入。
+    await run(["notify", "settled", "--session", "race", "--at", "3000"], b);
+    assert.equal(existsSync(path.join(b.state, "pending", "race.json")), true);
+  } finally {
+    rmSync(b.dir, { recursive: true, force: true });
+  }
+});
+
+test("立即通知也会被更新的 /ack 拦住", async () => {
+  const b = box({ bark: { enabled: true, deviceKey: "KEY123" } });
+  try {
+    await withBark(
+      () => ({ status: 200, json: { code: 200 } }),
+      async (endpoint, seen) => {
+        const cfg = JSON.parse(readFileSync(b.config, "utf8"));
+        writeFileSync(b.config, JSON.stringify({ ...cfg, bark: { ...cfg.bark, endpoint } }));
+
+        // /ack 请求 (2000) 比这条立即通知 (1000) 新：notify 子进程晚跑也不能推送。
+        await run(["cancel", "--session", "imm", "--at", "2000"], b);
+        await run(["notify", "notification", "--session", "imm", "--at", "1000"], b);
+        assert.equal(seen.length, 0, "已被取消的立即通知不能推送");
+
+        // 更新的立即通知照常推送。
+        await run(["notify", "notification", "--session", "imm", "--at", "3000"], b);
+        assert.equal(seen.length, 1);
+      },
+    );
+  } finally {
+    rmSync(b.dir, { recursive: true, force: true });
+  }
+});
+
+test("晚到的旧立即通知既不删新记录也不再推送", async () => {
+  const b = box({ bark: { enabled: true, deviceKey: "KEY123" } });
+  const record = path.join(b.state, "pending", "lateimm.json");
+  try {
+    await withBark(
+      () => ({ status: 200, json: { code: 200 } }),
+      async (endpoint, seen) => {
+        const cfg = JSON.parse(readFileSync(b.config, "utf8"));
+        writeFileSync(b.config, JSON.stringify({ ...cfg, bark: { ...cfg.bark, endpoint } }));
+
+        // 更新的延迟通知先落地（createdAt 4000）。
+        await run(["notify", "settled", "--session", "lateimm", "--at", "4000"], b);
+        assert.equal(existsSync(record), true);
+
+        // 更旧的立即通知进程晚到（createdAt 1000）：新记录要留着，旧的立即通知不能发。
+        await run(["notify", "notification", "--session", "lateimm", "--at", "1000"], b);
+        assert.equal(seen.length, 0, "过期的立即通知不能推送");
+        assert.equal(existsSync(record), true, "更新的待发记录不能被旧 cancel 删掉");
+
+        // 真正更新的立即通知照常发，并清掉更旧的待发记录。
+        await run(["notify", "notification", "--session", "lateimm", "--at", "5000"], b);
+        assert.equal(seen.length, 1);
+        assert.equal(existsSync(record), false);
+      },
+    );
   } finally {
     rmSync(b.dir, { recursive: true, force: true });
   }

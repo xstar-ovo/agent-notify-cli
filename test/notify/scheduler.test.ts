@@ -4,12 +4,13 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, readdirSync, readFileSync, utimesSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, utimesSync, writeFileSync } from "node:fs";
+import { createServer } from "node:http";
 import os from "node:os";
 import path from "node:path";
 import { tmpRoot } from "../helpers/tmp-config.js"; // 必须在 src 之前：log.ts 在 import 时取 configDir
 import { normalize } from "../../src/config/schema.js";
-import { cancel, enqueue, recordPath, sendDue, wake, type PendingNotification } from "../../src/notify/scheduler.js";
+import { cancel, enqueue, recordPath, sendDue, stillLive, superseded, wake, type PendingNotification } from "../../src/notify/scheduler.js";
 import { build, type NotifyRecord } from "../../src/notify/templates.js";
 
 function cfgFor(dir: string) {
@@ -108,6 +109,44 @@ test("a failed send from wake() hands the retry to a fresh waker", async () => {
     (JSON.parse(readFileSync(marker, "utf8")) as { pid: number }).pid !== process.pid,
     true,
     "重试必须换成新的 waker：标记还是自己就说明 30 秒后没人等这条记录",
+  );
+});
+
+test("wake 退出前会给发送途中替换的新记录接力一个 waker", async () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), "an-"));
+  mkdirSync(path.join(dir, "pending"), { recursive: true });
+  const marker = path.join(dir, "pending", "handoff.waker");
+  writeFileSync(recordPath(dir, "handoff"), JSON.stringify({ ...rec("handoff", Date.now() - 1), message: "OLD" }));
+  writeFileSync(marker, JSON.stringify({ pid: process.pid, at: Date.now() })); // 假装我就是那个 waker
+
+  const server = createServer((_req, res) => {
+    // 发送进行中：同会话写入更新的记录，再让这次发送失败
+    writeFileSync(recordPath(dir, "handoff"), JSON.stringify({
+      ...rec("handoff", Date.now() + 60_000),
+      message: "NEW",
+      createdAt: Date.now() + 5,
+    }));
+    res.statusCode = 500;
+    res.end("boom");
+  });
+  try {
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const { port } = server.address() as { port: number };
+    const cfg = normalize({
+      stateDir: dir,
+      bark: { enabled: true, deviceKey: "K", endpoint: `http://127.0.0.1:${port}`, timeoutMs: 500 },
+    });
+
+    await wake("handoff", cfg);
+  } finally {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
+
+  const after = JSON.parse(readFileSync(marker, "utf8")) as { pid: number };
+  assert.notEqual(after.pid, process.pid, "新记录不能沿用即将退出的 waker");
+  assert.equal(
+    (JSON.parse(readFileSync(recordPath(dir, "handoff"), "utf8")) as PendingNotification).message,
+    "NEW",
   );
 });
 
@@ -245,4 +284,122 @@ test("wake sleeps until the record is due", async () => {
   await wake("sleepy", cfg);
   assert.ok(Date.now() - started >= 60, "必须真的等到到期");
   assert.equal(existsSync(recordPath(dir, "sleepy")), false);
+});
+
+test("取消比通知新时，晚到的 notify 不能把记录写回来", () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), "an-"));
+  const cfg = cfgFor(dir);
+  cancel(cfg, "late", 2000);
+  enqueue({ ...rec("late", Date.now() + 60_000), createdAt: 1000 }, cfg);
+  assert.equal(existsSync(recordPath(dir, "late")), false, "cancel 先落、notify 进程后跑，通知也不能复活");
+});
+
+test("取消之后的新通知仍然照常写入", () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), "an-"));
+  const cfg = cfgFor(dir);
+  cancel(cfg, "fresh", 1000);
+  enqueue({ ...rec("fresh", Date.now() + 60_000), createdAt: 2000 }, cfg);
+  assert.equal(existsSync(recordPath(dir, "fresh")), true);
+});
+
+test("认领后被 /ack 撤销或被新通知替换的记录不会被发送", () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), "an-"));
+  const cfg = cfgFor(dir);
+  const old = rec("ackmid", Date.now() + 60_000);
+  enqueue(old, cfg);
+  assert.equal(stillLive(dir, old), true);
+
+  cancel(cfg, "ackmid", Date.now() + 10);
+  assert.equal(stillLive(dir, old), false, "/ack 删掉记录后旧快照作废");
+
+  enqueue({ ...old, createdAt: old.createdAt + 20 }, cfg);
+  assert.equal(stillLive(dir, old), false, "同会话的新通知不能让旧快照复活");
+});
+
+test("墓碑只增不减：旧的 cancel 不能覆盖新的", () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), "an-"));
+  const cfg = cfgFor(dir);
+  cancel(cfg, "mono", 5000);
+  cancel(cfg, "mono", 1000); // 乱序落地的旧 cancel 进程
+  enqueue({ ...rec("mono", Date.now() + 60_000), createdAt: 3000 }, cfg);
+  assert.equal(existsSync(recordPath(dir, "mono")), false, "墓碑退回到 1000 就会放行 3000 的通知");
+});
+
+test("发送成功途中写入的新通知不会被 cleanup 删掉", async () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), "an-"));
+  const cfg = cfgFor(dir);
+  enqueue({ ...rec("succ", Date.now() - 1), message: "OLD" }, cfg);
+
+  await sendDue(cfg, 0, async () => {
+    enqueue({ ...rec("succ", Date.now() + 60_000), message: "NEW", createdAt: Date.now() + 5 }, cfg);
+  });
+
+  const cur = JSON.parse(readFileSync(recordPath(dir, "succ"), "utf8")) as PendingNotification;
+  assert.equal(cur.message, "NEW", "发送成功后只能清理自己的旧记录");
+});
+
+test("发送途中写入的新记录会被补一个 waker", async () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), "an-"));
+  const cfg = cfgFor(dir);
+  enqueue({ ...rec("kick", Date.now() + 30_000), message: "OLD" }, cfg);
+  const marker = path.join(dir, "pending", "kick.waker");
+  const first = (JSON.parse(readFileSync(marker, "utf8")) as { pid: number }).pid;
+
+  await sendDue(cfg, 60_000, async () => {
+    enqueue({ ...rec("kick", Date.now() + 60_000), message: "NEW", createdAt: Date.now() + 5 }, cfg);
+  });
+
+  const after = (JSON.parse(readFileSync(marker, "utf8")) as { pid: number }).pid;
+  assert.notEqual(after, first, "不能让新记录沿用即将退出的旧 waker");
+  assert.equal(
+    (JSON.parse(readFileSync(recordPath(dir, "kick"), "utf8")) as PendingNotification).message,
+    "NEW",
+  );
+});
+
+test("晚到的旧 cancel 不会删掉更新的记录", () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), "an-"));
+  const cfg = cfgFor(dir);
+  enqueue({ ...rec("young", Date.now() + 60_000), createdAt: 5000 }, cfg);
+
+  cancel(cfg, "young", 1000); // 旧 cancel 进程晚到
+  assert.equal(existsSync(recordPath(dir, "young")), true, "比取消请求新的记录要留着");
+
+  cancel(cfg, "young", 6000); // 请求更晚的 cancel 才算数
+  assert.equal(existsSync(recordPath(dir, "young")), false);
+});
+
+test("墓碑比记录新时，残留记录也不会被发送", async () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), "an-"));
+  const cfg = cfgFor(dir);
+  const r = rec("tomb", Date.now() + 30_000);
+  enqueue(r, cfg);
+  cancel(cfg, "tomb", r.createdAt + 10); // 正常会连同记录一起删掉
+  writeFileSync(recordPath(dir, "tomb"), JSON.stringify(r)); // 模拟删除失败留下的残记录
+
+  const sent: NotifyRecord[] = [];
+  assert.equal(await sendDue(cfg, 60_000, async (x) => void sent.push(x)), 0);
+  assert.equal(sent.length, 0, "有更新的墓碑时，残留记录也不能发");
+  assert.equal(existsSync(recordPath(dir, "tomb")), false, "作废的残记录要清掉，否则 sweep 会反复拉起 flush");
+
+  // 清理残记录时必须一起放开认领的锁，否则同会话下一条会被挡到锁过期。
+  writeFileSync(recordPath(dir, "tomb"), JSON.stringify({ ...rec("tomb", Date.now() - 1), createdAt: r.createdAt + 20 }));
+  assert.equal(await sendDue(cfg, 0, async (x) => void sent.push(x)), 1, "残记录清理后，同一会话的新通知要能发");
+});
+
+test("立即通知只在取消或排队记录更新时才作废", () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), "an-"));
+  const cfg = cfgFor(dir);
+  mkdirSync(path.join(dir, "pending"), { recursive: true });
+  // 晚到的旧 notify 短暂落盘（createdAt 比立即通知旧）：不能拦住这条立即通知
+  writeFileSync(recordPath(dir, "imm"), JSON.stringify({ ...rec("imm", Date.now() + 60_000), createdAt: 1000 }));
+  assert.equal(superseded(cfg, "imm", 2000), false);
+
+  // 排队记录比立即通知新：这条作废
+  writeFileSync(recordPath(dir, "imm"), JSON.stringify({ ...rec("imm", Date.now() + 60_000), createdAt: 3000 }));
+  assert.equal(superseded(cfg, "imm", 2000), true);
+
+  // 取消比立即通知新：这条作废
+  cancel(cfg, "imm", 4000);
+  assert.equal(superseded(cfg, "imm", 2000), true);
 });
