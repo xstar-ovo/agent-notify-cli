@@ -127,7 +127,7 @@ test("opencode tui plugin shows the scheduled time at task end", () => {
   assert.match(src, /消息通知时间 \{clock\(due\)\}/);
   assert.match(src, /delayMs/);
   assert.match(src, /draft\.due\[id\] = dueAt/);
-  assert.match(src, /"cancel", "--session"/);
+  assert.match(src, /"cancel", "--session", session, "--at"/);
   assert.match(src, /ctx\.keymap\.layer/);
   assert.match(src, /slash: \{ name: "ack" \}/);
   assert.match(src, /palette: true/);
