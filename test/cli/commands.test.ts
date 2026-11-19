@@ -268,6 +268,17 @@ test("乱序落地的 notify 不能复活已被 /ack 取消的通知", async () 
   }
 });
 
+test("未来时间戳的 cancel 不会永久封死该会话的通知", async () => {
+  const b = box({ bark: { enabled: false } });
+  try {
+    await run(["cancel", "--session", "future", "--at", String(Date.now() + 3_600_000)], b);
+    await run(["notify", "settled", "--session", "future"], b);
+    assert.equal(existsSync(path.join(b.state, "pending", "future.json")), true);
+  } finally {
+    rmSync(b.dir, { recursive: true, force: true });
+  }
+});
+
 test("立即通知也会被更新的 /ack 拦住", async () => {
   const b = box({ bark: { enabled: true, deviceKey: "KEY123" } });
   try {

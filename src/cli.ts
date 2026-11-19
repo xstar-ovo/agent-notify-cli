@@ -87,7 +87,9 @@ const str = (v: unknown): string | undefined => (typeof v === "string" ? v : und
 /** 请求发出的时刻。扩展 spawn 进程会晚几毫秒，统一按请求时刻排队才能让 /ack 稳赢乱序的 notify。 */
 function requestAt(values: Record<string, string | boolean | undefined>): number {
   const at = Number(values.at);
-  return Number.isFinite(at) && at > 0 ? at : Date.now();
+  const now = Date.now();
+  // 墓碑只增不减，未来时间戳会永久封死该会话的通知，夹回当下。
+  return Number.isFinite(at) && at > 0 ? Math.min(at, now) : now;
 }
 
 function hookMessage(stdin: Record<string, any> | undefined): string | undefined {
