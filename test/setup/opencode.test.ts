@@ -18,7 +18,7 @@ function between(src: string, from: string, to: string): string {
 test("opencode plugin runs node + absolute cli.js without the @opencode/plugin import", () => {
   const src = openCodePluginContent();
   assert.match(src, /const CLI = "[^"]*cli\.js";/);
-  assert.match(src, /spawn\(NODE, \[CLI, "--agent", "opencode", \.\.\.args\]/);
+  assert.match(src, /spawn\(NODE, \[CLI, "--agent", "opencode", \.\.\.args, "--at", String\(Date\.now\(\)\)\]/);
   assert.ok(!src.includes("shell:"), "no shell:true");
   assert.ok(!src.includes("@opencode/plugin"), "plain object export avoids local package resolution");
   assert.match(src, /export default \{\n  id: "agent-notify",/);

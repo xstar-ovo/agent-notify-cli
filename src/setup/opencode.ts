@@ -71,7 +71,8 @@ function report(msg: string) {
 
 function notify(args: string[], cwd: string) {
   if (!existsSync(CLI)) return report(\`找不到 \${CLI}，请重新运行 agent-notify setup\`);
-  const child = spawn(NODE, [CLI, "--agent", "opencode", ...args], {
+  // 带上请求时刻：notify/cancel 是两条独立子进程，可能乱序执行，CLI 用 --at 让取消稳赢。
+  const child = spawn(NODE, [CLI, "--agent", "opencode", ...args, "--at", String(Date.now())], {
     cwd,
     detached: true,
     stdio: "ignore",
@@ -305,7 +306,7 @@ function mmss(ms: number): string {
 function cancel(id: string) {
   if (!existsSync(CLI)) return report(\`找不到 \${CLI}，请重新运行 agent-notify setup\`);
   for (const session of [\`oc:\${id}\`, \`oc:\${id}:wait\`]) {
-    const child = spawn(NODE, [CLI, "cancel", "--session", session], {
+    const child = spawn(NODE, [CLI, "cancel", "--session", session, "--at", String(Date.now())], {
       detached: true,
       stdio: "ignore",
       windowsHide: true,
