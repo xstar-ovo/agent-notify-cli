@@ -57,7 +57,8 @@ function report(msg: string) {
 function notify(args: string[]) {
   if (!existsSync(CLI)) return report(\`找不到 \${CLI}，请重新运行 agent-notify setup\`);
   // 直接跑 node + 绝对路径：不经过 shell（否则 Windows 会起 cmd.exe 和 npm shim，可能闪黑框，Node 24 还会打 DEP0190 警告）。
-  const child = spawn(process.execPath, [CLI, "--agent", "pi", ...args], {
+  // 带上请求时刻：notify/cancel 是两条独立子进程，可能乱序执行，CLI 用 --at 让取消稳赢。
+  const child = spawn(process.execPath, [CLI, "--agent", "pi", ...args, "--at", String(Date.now())], {
     detached: true,
     stdio: "ignore",
     windowsHide: true,

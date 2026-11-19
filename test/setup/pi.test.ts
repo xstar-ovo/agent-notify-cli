@@ -30,7 +30,7 @@ function betweenBraces(src: string, signature: string): string {
 test("pi extension calls node + absolute cli.js, never the shell/cmd shim", () => {
   const src = piExtensionContent();
   assert.match(src, /const CLI = "[^"]*cli\.js";/);
-  assert.match(src, /spawn\(process\.execPath, \[CLI, "--agent", "pi", \.\.\.args\]/);
+  assert.match(src, /spawn\(process\.execPath, \[CLI, "--agent", "pi", \.\.\.args, "--at", String\(Date\.now\(\)\)\]/);
   assert.ok(!src.includes("shell:"), "no shell:true (DEP0190 + cmd window)");
   assert.ok(!src.includes('spawn("agent-notify"'), "no .cmd shim spawn");
   assert.ok(!src.includes("__CLI__"), "placeholder replaced");
